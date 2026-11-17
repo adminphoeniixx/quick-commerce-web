@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "QCP Seller Sync",
+  "version": "0.2.0",
+  "description": "Uploads seller-panel report downloads (Blinkit, Zepto, Instamart, BigBasket) to Quick Commerce Pulse and runs the local QCP browser agent.",
+  "permissions": ["downloads", "storage", "unlimitedStorage", "cookies", "tabs", "scripting", "alarms"],
+  "host_permissions": [
+    "https://*.blinkit.com/*",
+    "https://*.grofers.com/*",
+    "https://*.zeptonow.com/*",
+    "https://*.swiggy.com/*",
+    "https://*.bigbasket.com/*",
+    "https://*.amazonaws.com/*",
+    "https://storage.googleapis.com/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:8765/*"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "QCP Seller Sync" },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://*.blinkit.com/*", "https://*.zeptonow.com/*", "https://*.swiggy.com/*", "https://*.bigbasket.com/*"],
+      "js": ["page-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*.blinkit.com/*", "https://*.zeptonow.com/*", "https://*.swiggy.com/*", "https://*.bigbasket.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

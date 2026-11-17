@@ -1,0 +1,1353 @@
+// Quick Commerce Pulse — multi-tenant SaaS data model.
+// Original design (dcluttr used only as functional inspiration — no proprietary
+// schema reproduced). Fact-table grain is documented in ARCHITECTURE.md §4.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================ enums ============================
+enum MembershipRole {
+  OWNER
+  ORG_ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum VerificationType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+}
+
+enum ListingStatus {
+  ACTIVE
+  DELISTED
+  PAUSED
+}
+
+enum ImportSource {
+  CSV
+  EXCEL
+  API
+  FEED
+}
+
+enum JobStatus {
+  STAGED
+  VALIDATED
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  RETRY_SCHEDULED
+  DEAD_LETTERED
+}
+
+enum ConnectionStatus {
+  DISCONNECTED
+  PENDING
+  CONNECTED
+  ERROR
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+}
+
+enum AlertType {
+  STOCKOUT
+  PRICE_CHANGE
+  SALES_ANOMALY
+  LOW_STOCK
+}
+
+enum AlertStatus {
+  NEW
+  SENT
+  ACKNOWLEDGED
+}
+
+enum ReportFormat {
+  PDF
+  XLSX
+}
+
+enum MarketplaceCode {
+  BLINKIT
+  ZEPTO
+  INSTAMART
+  AUTHORIZED_FEED
+}
+
+enum ObservationAvailability {
+  IN_STOCK
+  OUT_OF_STOCK
+  UNKNOWN
+}
+
+enum ScrapingRunStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  EMPTY
+  PARTIAL
+  FAILED
+  CANCELED
+  DEAD_LETTERED
+}
+
+// ====================== tenancy & auth ======================
+model Organization {
+  id        BigInt    @id @default(autoincrement())
+  name      String
+  createdAt DateTime  @default(now())
+  deletedAt DateTime? // soft delete (retention); excluded from normal reads
+
+  memberships                     Membership[]
+  brands                          Brand[]
+  subscription                    Subscription?
+  invoices                        Invoice[]
+  importJobs                      ImportJob[]
+  syncJobs                        SyncJob[]
+  connections                     PlatformConnection[]
+  analytics                       AnalyticsDaily[]
+  alertRules                      AlertRule[]
+  alerts                          Alert[]
+  reports                         Report[]
+  auditLogs                       AuditLog[]
+  invitations                     Invitation[]
+  visibility                      VisibilityObservation[]
+  syncSchedules                   SyncSchedule[]
+  importMappingTemplates          ImportMappingTemplate[]
+  marketplaceProducts             MarketplaceProduct[]
+  productPriceObservations        ProductPriceObservation[]
+  productAvailabilityObservations ProductAvailabilityObservation[]
+  productRankingObservations      ProductRankingObservation[]
+  scrapingRuns                    ScrapingRun[]
+  scrapingSchedules               ScrapingSchedule[]
+  productMatches                  ProductMatch[]
+  channelReports                  ChannelReport[]
+  channelProducts                 ChannelProduct[]
+  channelOrders                   ChannelOrder[]
+  channelInventory                ChannelInventory[]
+  adAccounts                      AdAccountSnapshot[]
+  adCampaigns                     AdCampaign[]
+  adCampaignDaily                 AdCampaignDaily[]
+  adKeywordDaily                  AdKeywordDaily[]
+  listingSeo                      ListingSeoSnapshot[]
+  searchListings                  SearchListingObservation[]
+  adBidChanges                    AdBidChange[]
+  adCampaignProposals             AdCampaignProposal[]
+}
+
+model Invitation {
+  id              BigInt         @id @default(autoincrement())
+  orgId           BigInt
+  email           String
+  role            MembershipRole @default(VIEWER)
+  tokenHash       String         @unique
+  invitedByUserId BigInt?
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime       @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([email])
+}
+
+model User {
+  id            BigInt   @id @default(autoincrement())
+  email         String   @unique
+  fullName      String?
+  passwordHash  String
+  emailVerified Boolean  @default(false)
+  isSuperAdmin  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  memberships            Membership[]
+  refreshTokens          RefreshToken[]
+  verificationTokens     VerificationToken[]
+  auditLogs              AuditLog[]
+  importMappingTemplates ImportMappingTemplate[]
+}
+
+model Membership {
+  id     BigInt         @id @default(autoincrement())
+  userId BigInt
+  orgId  BigInt
+  role   MembershipRole @default(VIEWER)
+
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+model RefreshToken {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  rotatedTo BigInt? // id of the token this one was rotated into
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  id        BigInt           @id @default(autoincrement())
+  userId    BigInt
+  type      VerificationType
+  tokenHash String           @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+}
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  orgId     BigInt?
+  userId    BigInt?
+  action    String
+  target    String?
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  org  Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  user User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+}
+
+// ====================== dimensions ======================
+model Platform {
+  id         Int     @id @default(autoincrement())
+  name       String
+  slug       String  @unique
+  brandColor String?
+
+  listings         PlatformListing[]
+  sov              ShareOfVoice[]
+  connections      PlatformConnection[]
+  syncJobs         SyncJob[]
+  analytics        AnalyticsDaily[]
+  visibility       VisibilityObservation[]
+  channelReports   ChannelReport[]
+  channelProducts  ChannelProduct[]
+  channelOrders    ChannelOrder[]
+  channelInventory ChannelInventory[]
+  adAccounts       AdAccountSnapshot[]
+  adCampaigns      AdCampaign[]
+  adCampaignDaily  AdCampaignDaily[]
+  adKeywordDaily   AdKeywordDaily[]
+  listingSeo       ListingSeoSnapshot[]
+  searchListings   SearchListingObservation[]
+  adBidChanges     AdBidChange[]
+  adCampaignProposals AdCampaignProposal[]
+}
+
+model Brand {
+  id        BigInt   @id @default(autoincrement())
+  orgId     BigInt
+  name      String
+  category  String?
+  logoUrl   String?
+  createdAt DateTime @default(now())
+
+  org              Organization               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  skus             Sku[]
+  keywords         Keyword[]
+  sov              ShareOfVoice[]
+  connections      PlatformConnection[]
+  importJobs       ImportJob[]
+  analytics        AnalyticsDaily[]
+  visibility       VisibilityObservation[]
+  channelReports   ChannelReport[]
+  channelProducts  ChannelProduct[]
+  channelOrders    ChannelOrder[]
+  channelInventory ChannelInventory[]
+  adAccounts       AdAccountSnapshot[]
+  adCampaigns      AdCampaign[]
+  adCampaignDaily  AdCampaignDaily[]
+  adKeywordDaily   AdKeywordDaily[]
+  listingSeo       ListingSeoSnapshot[]
+  searchListings   SearchListingObservation[]
+  adBidChanges     AdBidChange[]
+  adCampaignProposals AdCampaignProposal[]
+
+  @@index([orgId])
+}
+
+model City {
+  id     Int     @id @default(autoincrement())
+  name   String
+  region String?
+
+  availability AvailabilitySnapshot[]
+  pricing      PricingSnapshot[]
+  visibility   VisibilityObservation[]
+}
+
+model Keyword {
+  id       BigInt  @id @default(autoincrement())
+  brandId  BigInt
+  term     String
+  category String?
+
+  brand      Brand                   @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  sov        ShareOfVoice[]
+  visibility VisibilityObservation[]
+
+  @@unique([brandId, term])
+}
+
+model Competitor {
+  id       BigInt @id @default(autoincrement())
+  category String
+  name     String
+}
+
+// ====================== catalog ======================
+model Sku {
+  id        BigInt   @id @default(autoincrement())
+  brandId   BigInt
+  name      String
+  skuCode   String
+  packSize  String?
+  mrp       Decimal? @db.Decimal(10, 2)
+  category  String?
+  imageUrl  String?
+  createdAt DateTime @default(now())
+
+  brand    Brand             @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  listings PlatformListing[]
+
+  @@unique([brandId, skuCode])
+  @@index([brandId])
+}
+
+model PlatformListing {
+  id                BigInt        @id @default(autoincrement())
+  skuId             BigInt
+  platformId        Int
+  platformProductId String?
+  listingUrl        String?
+  status            ListingStatus @default(ACTIVE)
+  firstSeenAt       DateTime      @default(now())
+
+  sku      Sku                    @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  platform Platform               @relation(fields: [platformId], references: [id])
+  metrics  DailyMetric[]
+  avail    AvailabilitySnapshot[]
+  pricing  PricingSnapshot[]
+
+  @@unique([skuId, platformId])
+  @@index([platformId])
+}
+
+// ====================== facts (time-series) ======================
+// grain: listing × date
+model DailyMetric {
+  listingId    BigInt
+  metricDate   DateTime @db.Date
+  gmv          Decimal  @default(0) @db.Decimal(14, 2)
+  unitsSold    Int      @default(0)
+  avgSellPrice Decimal? @db.Decimal(10, 2)
+  discountPct  Decimal? @db.Decimal(5, 2)
+
+  listing PlatformListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@id([listingId, metricDate])
+  @@index([metricDate])
+}
+
+// grain: listing × city × date
+model AvailabilitySnapshot {
+  listingId       BigInt
+  cityId          Int
+  snapshotDate    DateTime @db.Date
+  storesTotal     Int
+  storesInStock   Int
+  availabilityPct Decimal  @db.Decimal(5, 2) // computed at ingestion
+  isOos           Boolean  @default(false)
+
+  listing PlatformListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  city    City            @relation(fields: [cityId], references: [id])
+
+  @@id([listingId, cityId, snapshotDate])
+  @@index([snapshotDate, cityId])
+}
+
+// grain: listing × city × date
+model PricingSnapshot {
+  listingId    BigInt
+  cityId       Int
+  snapshotDate DateTime @db.Date
+  sellingPrice Decimal  @db.Decimal(10, 2)
+  mrp          Decimal? @db.Decimal(10, 2)
+  discountPct  Decimal? @db.Decimal(5, 2)
+
+  listing PlatformListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  city    City            @relation(fields: [cityId], references: [id])
+
+  @@id([listingId, cityId, snapshotDate])
+  @@index([snapshotDate])
+}
+
+// grain: brand × platform × keyword × date
+model ShareOfVoice {
+  brandId      BigInt
+  platformId   Int
+  keywordId    BigInt
+  snapshotDate DateTime @db.Date
+  avgRank      Decimal? @db.Decimal(5, 2)
+  sovPct       Decimal? @db.Decimal(5, 2)
+  isSponsored  Boolean  @default(false)
+
+  brand    Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform @relation(fields: [platformId], references: [id])
+  keyword  Keyword  @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@id([brandId, platformId, keywordId, snapshotDate])
+  @@index([brandId, snapshotDate])
+}
+
+// Raw search-result observations (ours + competitors) for observation-based SOV.
+// Grain: org × platform × keyword × city × date × observedBrand (best rank kept).
+model VisibilityObservation {
+  id            BigInt   @id @default(autoincrement())
+  orgId         BigInt
+  brandId       BigInt // the tracked brand context this observation set belongs to
+  platformId    Int
+  keywordId     BigInt
+  cityId        Int
+  snapshotDate  DateTime @db.Date
+  observedBrand String
+  skuCode       String?
+  rank          Int
+  page          Int?
+  isSponsored   Boolean  @default(false)
+  isOwn         Boolean  @default(false)
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+  keyword  Keyword      @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+  city     City         @relation(fields: [cityId], references: [id])
+
+  @@unique([orgId, platformId, keywordId, cityId, snapshotDate, observedBrand])
+  @@index([brandId, snapshotDate])
+  @@index([keywordId])
+}
+
+// pre-aggregated rollup — grain: org × brand × platform × date
+model AnalyticsDaily {
+  orgId           BigInt
+  brandId         BigInt
+  platformId      Int
+  date            DateTime @db.Date
+  gmv             Decimal  @default(0) @db.Decimal(16, 2)
+  units           Int      @default(0)
+  avgSellPrice    Decimal? @db.Decimal(10, 2)
+  availabilityPct Decimal? @db.Decimal(5, 2)
+  oosPct          Decimal? @db.Decimal(5, 2)
+  sovPct          Decimal? @db.Decimal(5, 2)
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@id([orgId, brandId, platformId, date])
+  @@index([orgId, date])
+}
+
+// ====================== connectors & ingestion ======================
+model PlatformConnection {
+  id              BigInt           @id @default(autoincrement())
+  orgId           BigInt
+  brandId         BigInt
+  platformId      Int
+  status          ConnectionStatus @default(DISCONNECTED)
+  encryptedSecret String? // envelope-encrypted; NEVER plaintext
+  lastVerifiedAt  DateTime?
+  lastAuthCheckAt DateTime?
+  authFailures    Int              @default(0)
+  lastError       String?
+  // Block protection (lib/connections/guard.ts): after a block page / captcha / HTTP 429 nothing
+  // touches this connection's site until the time passes. searchPausedUntil: blinkit.com search only.
+  pausedUntil       DateTime?
+  pauseReason       String?
+  searchPausedUntil DateTime?
+  createdAt       DateTime         @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId])
+  @@index([orgId])
+}
+
+model ImportJob {
+  id                BigInt       @id @default(autoincrement())
+  orgId             BigInt
+  brandId           BigInt?
+  source            ImportSource
+  dataType          String       @default("sales") // sales | availability | pricing | visibility
+  platformSlug      String?
+  status            JobStatus    @default(QUEUED)
+  fileName          String?
+  filePath          String? // server-side staged file (deleted after processing)
+  queueJobId        String? // BullMQ job id (duplicate-job protection)
+  attempts          Int          @default(0)
+  progress          Int          @default(0) // 0..100
+  rowsTotal         Int          @default(0)
+  rowsOk            Int          @default(0)
+  rowsFailed        Int          @default(0)
+  duplicates        Int          @default(0)
+  startedAt         DateTime?
+  finishedAt        DateTime?
+  error             String?
+  selectedSheet     String?
+  mappingJson       Json?
+  validationSummary Json?
+  mappingTemplateId BigInt?
+  confirmedAt       DateTime?
+  retentionUntil    DateTime?
+  createdAt         DateTime     @default(now())
+
+  org             Organization           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand           Brand?                 @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  errors          ImportError[]
+  mappingTemplate ImportMappingTemplate? @relation(fields: [mappingTemplateId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+}
+
+model ImportMappingTemplate {
+  id           BigInt    @id @default(autoincrement())
+  orgId        BigInt
+  name         String
+  platformSlug String
+  dataType     String
+  mappingJson  Json
+  isDefault    Boolean   @default(false)
+  createdBy    BigInt
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User         @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  importJobs ImportJob[]
+
+  @@unique([orgId, name])
+  @@index([orgId, platformSlug, dataType])
+}
+
+// Scheduled synchronization definitions (infra for future authorized connectors).
+model SyncSchedule {
+  id         BigInt    @id @default(autoincrement())
+  orgId      BigInt
+  brandId    BigInt?
+  platformId Int?
+  dataType   String    @default("sales")
+  cron       String // e.g. "0 */6 * * *"
+  enabled    Boolean   @default(true)
+  lastRunAt  DateTime?
+  nextRunAt  DateTime?
+  lastStatus String?
+  createdAt  DateTime  @default(now())
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([enabled])
+}
+
+model ImportError {
+  id             BigInt  @id @default(autoincrement())
+  importJobId    BigInt
+  rowNumber      Int?
+  message        String
+  rawData        Json?
+  sourceField    String?
+  canonicalField String?
+  originalValue  String?
+  errorCode      String?
+  suggestion     String?
+
+  importJob ImportJob @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+
+  @@index([importJobId])
+}
+
+model SyncJob {
+  id           BigInt    @id @default(autoincrement())
+  orgId        BigInt?
+  platformId   Int?
+  jobType      String
+  status       JobStatus @default(QUEUED)
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  rowsIngested Int       @default(0)
+  error        String?
+  createdAt    DateTime  @default(now())
+
+  org      Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  platform Platform?     @relation(fields: [platformId], references: [id])
+
+  @@index([orgId, createdAt])
+}
+
+// ====================== billing ======================
+model Plan {
+  id           BigInt  @id @default(autoincrement())
+  code         String  @unique
+  name         String
+  priceMonthly Decimal @db.Decimal(10, 2)
+  priceYearly  Decimal @db.Decimal(10, 2)
+  features     Json?
+  limits       Json?
+  isActive     Boolean @default(true)
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id               BigInt             @id @default(autoincrement())
+  orgId            BigInt             @unique
+  planId           BigInt
+  status           SubscriptionStatus @default(TRIALING)
+  provider         String? // 'razorpay' | 'stripe'
+  providerSubId    String?
+  trialEnd         DateTime?
+  currentPeriodEnd DateTime?
+  cancelAt         DateTime?
+  createdAt        DateTime           @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  plan     Plan         @relation(fields: [planId], references: [id])
+  invoices Invoice[]
+}
+
+model Invoice {
+  id                BigInt        @id @default(autoincrement())
+  orgId             BigInt
+  subscriptionId    BigInt?
+  amount            Decimal       @db.Decimal(12, 2)
+  currency          String        @default("INR")
+  status            InvoiceStatus @default(OPEN)
+  providerInvoiceId String?
+  url               String?
+  issuedAt          DateTime      @default(now())
+  paidAt            DateTime?
+
+  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+}
+
+// ====================== alerts & reports ======================
+model AlertRule {
+  id        BigInt    @id @default(autoincrement())
+  orgId     BigInt
+  brandId   BigInt?
+  type      AlertType
+  config    Json
+  channels  Json // ['email', ...]
+  enabled   Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  alerts Alert[]
+
+  @@index([orgId])
+}
+
+model Alert {
+  id          BigInt      @id @default(autoincrement())
+  alertRuleId BigInt
+  orgId       BigInt
+  payload     Json
+  status      AlertStatus @default(NEW)
+  triggeredAt DateTime    @default(now())
+
+  rule AlertRule    @relation(fields: [alertRuleId], references: [id], onDelete: Cascade)
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, triggeredAt])
+}
+
+model Report {
+  id        BigInt   @id @default(autoincrement())
+  orgId     BigInt
+  brandId   BigInt?
+  name      String
+  type      String
+  config    Json
+  createdBy BigInt?
+  createdAt DateTime @default(now())
+
+  org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  schedules ReportSchedule[]
+
+  @@index([orgId])
+}
+
+model ReportSchedule {
+  id         BigInt       @id @default(autoincrement())
+  reportId   BigInt
+  cron       String
+  format     ReportFormat @default(PDF)
+  recipients Json
+  enabled    Boolean      @default(true)
+  lastRunAt  DateTime?
+
+  report Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}
+
+// Marketplace observations are deliberately separate from uploaded sales facts.
+// Missing observations never imply OUT_OF_STOCK, and each observation preserves provenance.
+model MarketplaceProduct {
+  id                BigInt          @id @default(autoincrement())
+  organizationId    BigInt
+  platform          MarketplaceCode
+  platformProductId String
+  productUrl        String
+  title             String
+  normalizedTitle   String
+  brand             String?
+  category          String?
+  subcategory       String?
+  imageUrl          String?
+  packSize          String?
+  unit              String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  lastObservedAt    DateTime
+
+  organization  Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  prices        ProductPriceObservation[]
+  availability  ProductAvailabilityObservation[]
+  rankings      ProductRankingObservation[]
+  sourceMatches ProductMatch[]                   @relation("SourceProduct")
+  targetMatches ProductMatch[]                   @relation("TargetProduct")
+
+  @@unique([organizationId, platform, platformProductId])
+  @@index([organizationId, lastObservedAt])
+  @@index([organizationId, platform, brand, category])
+}
+
+model ProductPriceObservation {
+  id              BigInt          @id @default(autoincrement())
+  organizationId  BigInt
+  productId       BigInt
+  platform        MarketplaceCode
+  city            String
+  locationKey     String
+  mrp             Decimal?        @db.Decimal(10, 2)
+  sellingPrice    Decimal         @db.Decimal(10, 2)
+  currency        String          @default("INR")
+  discountPct     Decimal?        @db.Decimal(5, 2)
+  observedAt      DateTime
+  sourceUrl       String
+  collectionRunId BigInt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product       MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionRun ScrapingRun        @relation(fields: [collectionRunId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationKey, observedAt, collectionRunId])
+  @@index([organizationId, platform, city, observedAt])
+}
+
+model ProductAvailabilityObservation {
+  id                 BigInt                  @id @default(autoincrement())
+  organizationId     BigInt
+  productId          BigInt
+  platform           MarketplaceCode
+  city               String
+  locationKey        String
+  availabilityStatus ObservationAvailability
+  observedAt         DateTime
+  sourceUrl          String
+  collectionRunId    BigInt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product       MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionRun ScrapingRun        @relation(fields: [collectionRunId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, locationKey, observedAt, collectionRunId])
+  @@index([organizationId, platform, city, observedAt])
+}
+
+model ProductRankingObservation {
+  id              BigInt          @id @default(autoincrement())
+  organizationId  BigInt
+  productId       BigInt
+  keyword         String
+  platform        MarketplaceCode
+  locationKey     String
+  rank            Int
+  placementType   String
+  observedAt      DateTime
+  collectionRunId BigInt
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product       MarketplaceProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionRun ScrapingRun        @relation(fields: [collectionRunId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, keyword, locationKey, observedAt, collectionRunId])
+  @@index([organizationId, platform, keyword, observedAt])
+}
+
+model ScrapingRun {
+  id              BigInt            @id @default(autoincrement())
+  organizationId  BigInt
+  platform        MarketplaceCode
+  status          ScrapingRunStatus @default(QUEUED)
+  jobId           String?           @unique
+  collectionType  String
+  keyword         String?
+  city            String
+  locationKey     String
+  startedAt       DateTime?
+  completedAt     DateTime?
+  discoveredCount Int               @default(0)
+  insertedCount   Int               @default(0)
+  updatedCount    Int               @default(0)
+  failedCount     Int               @default(0)
+  errorCode       String?
+  errorSummary    String?
+  createdAt       DateTime          @default(now())
+
+  organization Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  prices       ProductPriceObservation[]
+  availability ProductAvailabilityObservation[]
+  rankings     ProductRankingObservation[]
+
+  @@index([organizationId, createdAt])
+  @@index([status, createdAt])
+}
+
+model ScrapingSchedule {
+  id             BigInt          @id @default(autoincrement())
+  organizationId BigInt
+  platform       MarketplaceCode
+  collectionType String
+  keyword        String?
+  city           String
+  locationKey    String
+  schedule       String
+  timezone       String
+  enabled        Boolean         @default(true)
+  lastRunAt      DateTime?
+  nextRunAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, enabled])
+}
+
+model ProductMatch {
+  id              BigInt    @id @default(autoincrement())
+  organizationId  BigInt
+  sourceProductId BigInt
+  targetProductId BigInt
+  confidence      Decimal   @db.Decimal(5, 4)
+  matchStatus     String    @default("SUGGESTED")
+  reviewedBy      BigInt?
+  reviewedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceProduct MarketplaceProduct @relation("SourceProduct", fields: [sourceProductId], references: [id], onDelete: Cascade)
+  targetProduct MarketplaceProduct @relation("TargetProduct", fields: [targetProductId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceProductId, targetProductId])
+  @@index([organizationId, matchStatus])
+}
+
+// ---------------------------------------------------------------------------
+// Seller-panel data pulled by the browser connector (one row per source record).
+// ---------------------------------------------------------------------------
+
+// Every report file fetched from a seller panel, with its outcome and the original file.
+model ChannelReport {
+  id           BigInt    @id @default(autoincrement())
+  orgId        BigInt
+  brandId      BigInt
+  platformId   Int
+  reportType   String // sales_summary | product_listing
+  rangeLabel   String? // the panel's own range label, e.g. "October 2026"
+  periodFrom   DateTime? @db.Date
+  periodTo     DateTime? @db.Date
+  status       String // SUCCESS | FAILED
+  rowsTotal    Int       @default(0)
+  rowsImported Int       @default(0)
+  fileName     String?
+  fileData     Bytes?
+  contentHash  String?
+  error        String?
+  trigger      String // connect | manual | retry
+  createdAt    DateTime  @default(now())
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@index([orgId, createdAt])
+  @@index([brandId, platformId, createdAt])
+  @@index([brandId, platformId, reportType, rangeLabel, contentHash])
+}
+
+// Seller catalog as listed on the platform. `details` keeps every exported column.
+model ChannelProduct {
+  id               BigInt   @id @default(autoincrement())
+  orgId            BigInt
+  brandId          BigInt
+  platformId       Int
+  skuId            BigInt?
+  itemId           String
+  productId        String?
+  upc              String?
+  name             String
+  brandName        String?
+  uom              String?
+  mrp              Decimal? @db.Decimal(10, 2)
+  sellingPrice     Decimal? @db.Decimal(10, 2)
+  status           String?
+  businessCategory String?
+  manufacturer     String?
+  hsn              String?
+  gstPct           Decimal? @db.Decimal(6, 2)
+  commissionPct    Decimal? @db.Decimal(6, 2)
+  commissionValue  Decimal? @db.Decimal(10, 2)
+  fulfillmentFee   Decimal? @db.Decimal(10, 2)
+  details          Json
+  firstSeenAt      DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, itemId])
+  @@index([orgId])
+}
+
+// One order line (order × item) from the seller panel's order-level sales export.
+model ChannelOrder {
+  id               BigInt   @id @default(autoincrement())
+  orgId            BigInt
+  brandId          BigInt
+  platformId       Int
+  skuId            BigInt?
+  orderId          String
+  itemId           String
+  orderDate        DateTime @db.Date
+  productName      String
+  variant          String?
+  categoryPath     String?
+  businessCategory String?
+  expansionLevel   String?
+  supplyCity       String?
+  supplyState      String?
+  customerCity     String?
+  customerState    String?
+  status           String
+  hsn              String?
+  quantity         Int
+  mrp              Decimal? @db.Decimal(10, 2)
+  sellingPrice     Decimal? @db.Decimal(10, 2)
+  igstPct          Decimal? @db.Decimal(6, 3)
+  cgstPct          Decimal? @db.Decimal(6, 3)
+  sgstPct          Decimal? @db.Decimal(6, 3)
+  cessPct          Decimal? @db.Decimal(6, 3)
+  igstValue        Decimal? @db.Decimal(10, 2)
+  cgstValue        Decimal? @db.Decimal(10, 2)
+  sgstValue        Decimal? @db.Decimal(10, 2)
+  cessValue        Decimal? @db.Decimal(10, 2)
+  totalTax         Decimal? @db.Decimal(10, 2)
+  grossAmount      Decimal  @db.Decimal(12, 2)
+  reportId         BigInt?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, orderId, itemId])
+  @@index([orgId, orderDate])
+  @@index([brandId, platformId, orderDate])
+}
+
+// Stock on hand per item × warehouse, one snapshot per sync day (seller-panel inventory export).
+model ChannelInventory {
+  id                BigInt   @id @default(autoincrement())
+  orgId             BigInt
+  brandId           BigInt
+  platformId        Int
+  skuId             BigInt?
+  snapshotDate      DateTime @db.Date
+  itemId            String
+  itemName          String
+  upc               String?
+  uom               String?
+  warehouseId       String
+  warehouseName     String
+  city              String
+  netScheduled      Int      @default(0)
+  incomingScheduled Int      @default(0)
+  recalled          Int      @default(0)
+  totalSellable     Int      @default(0)
+  warehouseUnits    Int      @default(0)
+  inBetweenUnits    Int      @default(0)
+  darkstoreUnits    Int      @default(0)
+  totalUnsellable   Int      @default(0)
+  damaged           Int      @default(0)
+  lost              Int      @default(0)
+  expired           Int      @default(0)
+  nearExpiry        Int      @default(0)
+  sold7d            Int      @default(0)
+  sold15d           Int      @default(0)
+  sold30d           Int      @default(0)
+  remarks           String?
+  reportId          BigInt?
+  updatedAt         DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, snapshotDate, itemId, warehouseId])
+  @@index([orgId, snapshotDate])
+  @@index([brandId, platformId, snapshotDate])
+}
+
+// ── Blinkit Ads (brands.blinkit.com) ─────────────────────────────────────────────
+// Synced from the brand's own ad account by the browser connector (platform "blinkit-ads").
+// Money is INR as reported by the portal. ROAS is always derived (sales / spend).
+
+// Ad account state per sync day: wallet, credit, festive insights, collections.
+model AdAccountSnapshot {
+  id             BigInt   @id @default(autoincrement())
+  orgId          BigInt
+  brandId        BigInt
+  platformId     Int
+  snapshotDate   DateTime @db.Date
+  advertiserId   String
+  advertiserName String?
+  status         String?
+  walletBalance  Decimal? @db.Decimal(14, 2)
+  tentativeSpend Decimal? @db.Decimal(14, 2)
+  creditBalance  Decimal? @db.Decimal(14, 2)
+  festive        Json? // { summary, keywords }
+  collections    Json?
+  details        Json // advertiser features, plans, region-id → city map
+  updatedAt      DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, snapshotDate])
+  @@index([orgId])
+}
+
+// One ad campaign with its current settings and lifetime totals.
+model AdCampaign {
+  id                  BigInt    @id @default(autoincrement())
+  orgId               BigInt
+  brandId             BigInt
+  platformId          Int
+  campaignId          String
+  name                String
+  campaignType        String // PRODUCT_LISTING | PRODUCT_RECOMMENDATION | BANNER_LISTING | …
+  objective           String?
+  status              String // ACTIVE | STOPPED | COMPLETED | …
+  startAt             DateTime?
+  endAt               DateTime? // null = runs until stopped
+  budget              Decimal?  @db.Decimal(14, 2)
+  pacing              String?
+  regionType          String?
+  cities              String[]
+  productIds          String[] // Blinkit product ids; join ChannelProduct.productId
+  keywords            Json? // targeted keywords with bids
+  lifetimeSpend       Decimal?  @db.Decimal(14, 2)
+  lifetimeImpressions BigInt?
+  lifetimeSales       Decimal?  @db.Decimal(14, 2)
+  lifetimeAtc         Int?
+  details             Json
+  updatedAt           DateTime  @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, campaignId])
+  @@index([orgId])
+}
+
+// Campaign × IST day performance (grain: campaign × date).
+model AdCampaignDaily {
+  id            BigInt   @id @default(autoincrement())
+  orgId         BigInt
+  brandId       BigInt
+  platformId    Int
+  campaignId    String
+  date          DateTime @db.Date
+  spend         Decimal  @default(0) @db.Decimal(14, 2)
+  impressions   Int      @default(0)
+  ctr           Decimal? @db.Decimal(8, 4)
+  directAtc     Int      @default(0)
+  indirectAtc   Int      @default(0)
+  totalAtc      Int      @default(0)
+  directSales   Decimal  @default(0) @db.Decimal(14, 2)
+  indirectSales Decimal  @default(0) @db.Decimal(14, 2)
+  totalSales    Decimal  @default(0) @db.Decimal(14, 2)
+  directQty     Int      @default(0)
+  indirectQty   Int      @default(0)
+  totalQty      Int      @default(0)
+  newUsers      Int      @default(0)
+  updatedAt     DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, campaignId, date])
+  @@index([orgId, date])
+  @@index([brandId, platformId, date])
+}
+
+// Campaign × day × keyword (or another portal breakdown) performance.
+model AdKeywordDaily {
+  id            BigInt   @id @default(autoincrement())
+  orgId         BigInt
+  brandId       BigInt
+  platformId    Int
+  campaignId    String
+  date          DateTime @db.Date
+  dimension     String // "keyword" today; other portal breakdowns keep their name
+  dimKey        String
+  label         String
+  matchType     String?
+  impressions   Int      @default(0)
+  spend         Decimal  @default(0) @db.Decimal(14, 2)
+  directAtc     Int      @default(0)
+  indirectAtc   Int      @default(0)
+  directSales   Decimal  @default(0) @db.Decimal(14, 2)
+  indirectSales Decimal  @default(0) @db.Decimal(14, 2)
+  directQty     Int      @default(0)
+  indirectQty   Int      @default(0)
+  newUsers      Int      @default(0)
+  position      Int? // most viewed slot position
+  updatedAt     DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, campaignId, date, dimension, dimKey])
+  @@index([brandId, platformId, date])
+}
+
+// ── Blinkit Seller Hub listing / SEO (seller.blinkit.com) ────────────────────────────────
+// One row per product per sync day, from the seller's own catalogue + expansion + sales pages
+// (agent MCP blinkit_seller_seo_sync). Metrics are as reported by the portal.
+model ListingSeoSnapshot {
+  id                 BigInt    @id @default(autoincrement())
+  orgId              BigInt
+  brandId            BigInt
+  platformId         Int
+  snapshotDate       DateTime  @db.Date
+  productId          String // Blinkit product id; joins ChannelProduct.productId, AdCampaign.productIds
+  itemId             String?
+  name               String
+  brandName          String?
+  category           String? // primary consumer category, e.g. "Almonds"
+  unit               String?
+  expansionLevel     String? // Trial | L1..L4
+  availabilityPct    Float?
+  availabilityTarget Float?
+  unitsPerStoreDay   Float? // portal "CPD"
+  unitsTarget        Float?
+  salesPerStoreDay   Float?
+  salesTarget        Float?
+  complaintPct       Float?
+  storesLive         Int?
+  storesNew          Int?
+  storesClosed       Int?
+  citiesLive         Int?
+  citiesNew          Int?
+  citiesClosed       Int?
+  assessmentEnd      DateTime?
+  periodLabel        String? // sales window, e.g. "Last 30 days"
+  units              Int?
+  sales              Float?
+  salesSharePct      Float?
+  complaints         Int?
+  titleLength        Int       @default(0)
+  descriptionLength  Int       @default(0)
+  imageCount         Int       @default(0)
+  attrsFilled        Int       @default(0)
+  attrsTotal         Int       @default(0)
+  engagementScore    Float? // portal's internal product_engagement_score attribute
+  missingAttributes  Json // [{ name, group, mandatory }]
+  cities             Json // per-city breakdown from the expansion page
+  content            Json // title, description, key attributes, image urls
+  issues             Json // [{ severity, code, message }]
+  updatedAt          DateTime  @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, snapshotDate, productId], map: "ListingSeoSnapshot_brand_platform_date_product_key")
+  @@index([orgId])
+}
+
+// One product card on a blinkit.com search results page (agent MCP blinkit_keyword_rank), read in
+// the user's own Chrome for keywords taken from Blinkit Ads. Grain: keyword × city × day × product.
+model SearchListingObservation {
+  id           BigInt   @id @default(autoincrement())
+  orgId        BigInt
+  brandId      BigInt
+  platformId   Int
+  snapshotDate DateTime @db.Date
+  keyword      String
+  city         String
+  location     String? // delivery address shown in the page header
+  rank         Int // position among all cards
+  organicRank  Int? // position among non-ad cards; null for ads
+  productId    String
+  name         String
+  brandName    String?
+  pack         String?
+  rating       Float?
+  ratingCount  Int?
+  price        Float?
+  mrp          Float?
+  isAd         Boolean  @default(false)
+  adCampaignId String?
+  inventory    Int?
+  soldOut      Boolean  @default(false)
+  isOwn        Boolean  @default(false)
+  observedAt   DateTime
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([brandId, platformId, snapshotDate, keyword, city, productId], map: "SearchListingObservation_brand_day_kw_city_product_key")
+  @@index([brandId, snapshotDate])
+}
+
+// Blinkit Ads keyword bid change: proposed in QCP, approved by the seller (OWNER/ORG_ADMIN), then
+// applied by the server's Blinkit Ads browser session (services/browser/blinkit_ads_bids.py).
+// status: PENDING → APPROVED → APPLYING → APPLIED | CONFLICT | FAILED; or REJECTED / CANCELLED.
+model AdBidChange {
+  id           BigInt    @id @default(autoincrement())
+  orgId        BigInt
+  brandId      BigInt
+  platformId   Int // blinkit-ads
+  campaignId   String
+  campaignName String
+  keyword      String
+  matchType    String // EXACT | SMART
+  fromCpm      Decimal?  @db.Decimal(10, 2) // QCP's last synced bid when proposed
+  toCpm        Decimal   @db.Decimal(10, 2)
+  status       String    @default("PENDING")
+  note         String?
+  evidence     Json? // immutable metrics and agent decision behind an AI recommendation
+  dataAsOf     DateTime? @db.Date
+  model        String?
+  promptVersion String?
+  createdBy    String // email
+  decidedBy    String? // email of approver / rejecter
+  decidedAt    DateTime?
+  appliedAt    DateTime?
+  beforeCpm    Decimal?  @db.Decimal(10, 2) // what Blinkit showed right before applying
+  afterCpm     Decimal?  @db.Decimal(10, 2) // what Blinkit showed after applying (verified)
+  error        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@index([brandId, platformId, status])
+  @@index([brandId, platformId, campaignId])
+}
+
+// Durable, idempotent human approval record for an AI-assisted campaign launch.
+model AdCampaignProposal {
+  id                 BigInt   @id @default(autoincrement())
+  orgId              BigInt
+  brandId            BigInt
+  platformId         Int
+  templateCampaignId String
+  name               String
+  budget             Decimal  @db.Decimal(14, 2)
+  startAt            DateTime @db.Date
+  endAt              DateTime @db.Date
+  status             String   @default("PENDING_APPROVAL")
+  evidence            Json
+  forecast            Json
+  agentReviews        Json
+  dataAsOf            DateTime @db.Date
+  model               String?
+  promptVersion       String
+  idempotencyKey      String
+  payloadHash         String
+  createdBy           String
+  decidedBy           String?
+  decidedAt           DateTime?
+  remoteCampaignId    String?
+  error               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  platform Platform     @relation(fields: [platformId], references: [id])
+
+  @@unique([orgId, idempotencyKey])
+  @@index([brandId, platformId, status])
+  @@index([templateCampaignId])
+}

@@ -1,0 +1,39 @@
+FROM node:20-alpine AS base
+# Prisma's query engine needs OpenSSL, which node:alpine does not ship.
+RUN apk add --no-cache openssl
+
+FROM base AS dependencies
+WORKDIR /app
+COPY package.json package-lock.json ./
+# postinstall runs `prisma generate`, which needs the schema.
+COPY prisma ./prisma
+RUN npm ci
+
+FROM base AS builder
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npx prisma generate && npm run build && npm prune --omit=dev && rm -rf .next/cache
+
+FROM base AS runtime
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+RUN addgroup -S qcp && adduser -S qcp -G qcp
+COPY --from=builder --chown=qcp:qcp /app/package.json /app/package-lock.json ./
+COPY --from=builder --chown=qcp:qcp /app/node_modules ./node_modules
+COPY --from=builder --chown=qcp:qcp /app/.next ./.next
+COPY --from=builder --chown=qcp:qcp /app/public ./public
+COPY --from=builder --chown=qcp:qcp /app/prisma ./prisma
+COPY --from=builder --chown=qcp:qcp /app/lib ./lib
+COPY --from=builder --chown=qcp:qcp /app/worker ./worker
+COPY --from=builder --chown=qcp:qcp /app/packages ./packages
+COPY --from=builder --chown=qcp:qcp /app/scripts ./scripts
+COPY --from=builder --chown=qcp:qcp /app/tsconfig.json /app/next.config.mjs /app/docker-entrypoint.production.sh ./
+RUN chmod 755 /app/docker-entrypoint.production.sh
+# Pre-create the staging mount point owned by qcp; a new named volume copies this ownership.
+RUN mkdir -p /app/.import-staging && chown qcp:qcp /app/.import-staging
+USER qcp
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 CMD wget -q -O - http://127.0.0.1:3000/api/health/live || exit 1
+CMD ["/app/docker-entrypoint.production.sh"]

@@ -1,0 +1,21 @@
+body { font: 13px/1.4 system-ui, sans-serif; color: #1f2328; margin: 12px; }
+body.popup { width: 340px; }
+body.options { max-width: 720px; }
+h1 { font-size: 15px; margin: 0 0 10px; }
+h2 { font-size: 13px; margin: 0 0 6px; }
+section { margin-bottom: 12px; }
+label { display: block; margin-bottom: 8px; }
+label.row, .row { display: flex; gap: 6px; align-items: center; }
+input:not([type=checkbox]), select, textarea { width: 100%; box-sizing: border-box; padding: 4px; font: inherit; }
+textarea { font-family: ui-monospace, monospace; font-size: 12px; }
+.row select { width: auto; flex: 1; }
+button { padding: 5px 10px; border: 0; border-radius: 4px; background: #0c831f; color: #fff; cursor: pointer; }
+button.secondary { background: #d0d7de; color: #1f2328; }
+button:disabled { opacity: .5; cursor: default; }
+ul { list-style: none; padding: 0; margin: 0; }
+#pending li { border: 1px solid #d0d7de; border-radius: 4px; padding: 6px; margin-bottom: 6px; }
+.log li { font-size: 12px; padding: 2px 0; border-bottom: 1px solid #f0f0f0; }
+.muted { color: #656d76; font-size: 12px; }
+.ok { color: #1a7f37; }
+.warn { color: #9a6700; }
+.error { color: #cf222e; }

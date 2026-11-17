@@ -1,0 +1,6 @@
+langgraph>=1.2,<2
+langchain-openai>=1.7,<2
+langchain-mcp-adapters>=0.3,<0.4
+python-dotenv>=1.0
+playwright>=1.64,<2
+httpx>=0.28,<1

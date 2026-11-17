@@ -1,0 +1,66 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    restart: unless-stopped
+    env_file: .env.production
+    # Image CMD runs docker-entrypoint.production.sh: prisma migrate deploy, then npm start.
+    ports: ["3000:3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp"]
+    volumes: ["import_staging:/app/.import-staging"]
+    security_opt: ["no-new-privileges:true"]
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+    restart: unless-stopped
+    env_file: .env.production
+    command: npm run worker
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    read_only: true
+    tmpfs: ["/tmp"]
+    volumes: ["import_staging:/app/.import-staging"]
+    security_opt: ["no-new-privileges:true"]
+    # The shared image healthcheck probes the web server, but this container only
+    # runs BullMQ. Verify both the worker process and its Redis dependency instead.
+    healthcheck:
+      test: ["CMD-SHELL", "ps -o args | grep -q '[t]sx worker/index.ts' && node -e \"const Redis=require('ioredis');const r=new Redis(process.env.REDIS_URL,{connectTimeout:1500,maxRetriesPerRequest:0});r.ping().then(x=>{r.disconnect();process.exit(x==='PONG'?0:1)}).catch(()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+  # Internal-only browser for seller-panel logins and scheduled report downloads.
+  # Gets its own env file: it renders third-party pages, so it never sees DB/app secrets.
+  browser:
+    build:
+      context: services/browser
+    restart: unless-stopped
+    env_file: .env.browser
+    init: true # xvfb-run hangs when it runs as PID 1
+    volumes: ["browser_profiles:/data/profiles"]
+    shm_size: "1gb"
+    security_opt: ["no-new-privileges:true"]
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env.production
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"], interval: 10s, timeout: 5s, retries: 10 }
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes: ["redis_data:/data"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 10 }
+volumes:
+  postgres_data:
+  redis_data:
+  import_staging:
+  browser_profiles:

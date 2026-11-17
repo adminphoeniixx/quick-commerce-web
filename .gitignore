@@ -1,0 +1,35 @@
+# Dependencies and generated package data
+node_modules/
+node_modules.interrupted-*/
+agent/.venv/
+
+# Local secrets and runtime configuration
+.env
+.env.*
+!.env.example
+ACCESS.local.md
+agent/.env
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Next.js, TypeScript, and test output
+.next/
+out/
+coverage/
+playwright-report/
+test-results/
+tsconfig.tsbuildinfo
+
+# Local data and downloads
+agent/downloads/
+*.sqlite
+*.sqlite3
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/

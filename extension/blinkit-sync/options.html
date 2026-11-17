@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>QCP Blinkit Sync — Settings</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="options">
+  <h1>QCP Blinkit Sync — Settings</h1>
+
+  <label>QCP app URL
+    <input id="appUrl" placeholder="https://app.example.com" />
+  </label>
+
+  <label>Agent bridge token — same value as QCP_BRIDGE_TOKEN in agent/.env (empty = agent off)
+    <span class="row"><input id="bridgeToken" /><button id="genToken" type="button" class="secondary">Generate</button></span>
+  </label>
+
+  <label>Pause between reports (ms)
+    <input id="pauseMs" type="number" min="2000" step="500" />
+  </label>
+
+  <label>File-name rules (JSON) — first match decides the data type
+    <textarea id="rules" rows="8"></textarea>
+  </label>
+
+  <label>Reports for "Run all" (JSON) — see README for the step format
+    <textarea id="reports" rows="16"></textarea>
+  </label>
+
+  <button id="save">Save</button>
+  <span id="msg"></span>
+  <script type="module" src="options.js"></script>
+</body>
+</html>

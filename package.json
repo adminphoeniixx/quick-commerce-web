@@ -1,0 +1,68 @@
+{
+  "name": "quick-commerce-pulse",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:seed": "prisma db seed",
+    "accounts:bootstrap": "tsx scripts/bootstrap-accounts.ts",
+    "postinstall": "prisma generate",
+    "worker": "tsx worker/index.ts",
+    "scraping:mcp": "tsx packages/scraping-mcp/src/index.ts",
+    "test": "vitest run",
+    "test:redis": "RUN_REDIS_TESTS=1 REDIS_URL=redis://localhost:6379 vitest run tests/integration/queue.integration.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@prisma/client": "^5.17.0",
+    "argon2": "^0.40.3",
+    "bullmq": "^5.66.0",
+    "cheerio": "^1.2.0",
+    "csv-parse": "^7.0.3",
+    "exceljs": "^4.4.0",
+    "ioredis": "^5.4.1",
+    "jose": "^5.6.3",
+    "lucide-react": "^1.62.0",
+    "next": "^16.4.3",
+    "next-themes": "^0.4.6",
+    "nodemailer": "^10.2.1",
+    "prisma": "^5.17.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "recharts": "^3.10.1",
+    "tsx": "^4.23.15",
+    "zod": "^4.6.7"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "20.14.10",
+    "@types/nodemailer": "^6.4.15",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "autoprefixer": "10.4.19",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.4.3",
+    "playwright": "^1.64.1",
+    "postcss": "8.4.39",
+    "tailwindcss": "3.4.7",
+    "typescript": "5.5.3",
+    "vitest": "^2.0.5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "^11.1.1"
+    }
+  }
+}
