@@ -4,16 +4,8 @@ import { useMemo, useState } from "react";
 import { Copy, X } from "lucide-react";
 import { ApiError, apiPost } from "@/lib/client/api";
 import { inr, TYPE_LABEL } from "./AdsShell";
-
-export interface CampaignTemplate {
-  campaignId: string;
-  name: string;
-  type: string;
-  status: string;
-  budget: number | null;
-  endAt: string | null;
-  productIds: string[];
-}
+import type { CampaignTemplate } from "@/lib/ads/campaigns/types";
+import { validateCampaignForm } from "@/lib/ads/campaigns/validation";
 
 const inputClass = "h-10 w-full rounded-lg border bg-transparent px-3 text-sm outline-none focus:ring-2";
 const today = () => new Date().toISOString().slice(0, 10);
@@ -38,13 +30,7 @@ export function CreateCampaignDialog({ campaigns, query }: { campaigns: Campaign
     setError("");
   };
   const show = () => { if (template) { resetFrom(template); setOpen(true); } };
-  const validation = useMemo(() => {
-    if (!name.trim()) return "Campaign name is required.";
-    if (!Number.isFinite(Number(budget)) || Number(budget) <= 0) return "Enter a valid positive budget.";
-    if (!noEnd && !end) return "Choose an end date or select no end date.";
-    if (end && end < today()) return "End date cannot be in the past.";
-    return "";
-  }, [name, budget, noEnd, end]);
+  const validation = useMemo(() => validateCampaignForm({ name, budget, noEnd, end, today: today() }), [name, budget, noEnd, end]);
 
   const submit = async () => {
     if (!template || validation) return;

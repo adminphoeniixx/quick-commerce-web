@@ -7,23 +7,13 @@ import type { ImportSource } from "@prisma/client";
 import type { NormalizedAvailabilityRow, RowError } from "./contracts";
 import { skuMap, makeListingResolver, makeCityResolver } from "./resolve";
 import { createImportJob, finalizeImportJob, type CoreResult } from "./job";
+import { dedupeLast } from "./dedupe";
 
 export interface AvailCtx {
   orgId: bigint; brandId: bigint; platformSlug: PlatformSlug; source: ImportSource; fileName?: string;
 }
 export interface IngestResult {
   importJobId: bigint; rowsTotal: number; rowsOk: number; rowsFailed: number; duplicatesMerged: number;
-}
-
-function dedupe(rows: NormalizedAvailabilityRow[]) {
-  const map = new Map<string, NormalizedAvailabilityRow>();
-  let duplicates = 0;
-  for (const r of rows) {
-    const key = `${r.skuCode}|${r.cityName}|${r.date}`;
-    if (map.has(key)) duplicates++;
-    map.set(key, r);
-  }
-  return { merged: [...map.values()], duplicates };
 }
 
 export async function ingestAvailabilityCore(
@@ -36,7 +26,7 @@ export async function ingestAvailabilityCore(
   const platform = await prisma.platform.findUnique({ where: { slug: ctx.platformSlug }, select: { id: true } });
   if (!platform) throw NotFound("Unknown platform");
 
-  const { merged, duplicates } = dedupe(parsed.rows);
+  const { merged, duplicates } = dedupeLast(parsed.rows, (r) => `${r.skuCode}|${r.cityName}|${r.date}`);
   const errors: RowError[] = [...parsed.errors];
   const codes = await skuMap(ctx.brandId);
   const listingOf = makeListingResolver(platform.id);
