@@ -36,6 +36,7 @@ export const POST = handler(async (req, ctx: { params: { id: string } }) => {
   const scope = await adsScope(req);
   await requirePermission(session, scope.orgId, "integration:manage");
   const body = await parseBody(req, schema);
+  if (body.action === "duplicate") throw BadRequest("Create campaigns through the durable proposal approval flow");
   await rateLimit(`ads-campaign-action:${scope.orgId}:${session.userId}`, 20, 3600);
 
   const [campaign, connection] = await Promise.all([
@@ -51,35 +52,13 @@ export const POST = handler(async (req, ctx: { params: { id: string } }) => {
     name: body.name, budget: body.budget, start: body.start, end: body.end, no_end: body.noEnd,
   });
 
-  if (body.action === "duplicate") {
-    await prisma.adCampaign.create({ data: {
-      orgId: campaign.orgId,
-      brandId: campaign.brandId,
-      platformId: campaign.platformId,
-      campaignId: result.campaignId,
-      name: result.after.name ?? body.name ?? `${campaign.name} copy`,
-      campaignType: campaign.campaignType,
-      objective: campaign.objective,
-      status: result.after.status ?? "UNKNOWN",
-      startAt: body.start ? new Date(body.start) : campaign.startAt,
-      endAt: body.noEnd === true ? null : body.end ? new Date(body.end) : campaign.endAt,
-      budget: result.after.budget ?? body.budget ?? campaign.budget,
-      pacing: campaign.pacing,
-      regionType: campaign.regionType,
-      cities: campaign.cities,
-      productIds: campaign.productIds,
-      keywords: campaign.keywords ?? undefined,
-      details: campaign.details ?? {},
-    } });
-  } else {
-    await prisma.adCampaign.update({ where: { id: campaign.id }, data: {
-      status: result.after.status ?? campaign.status,
-      budget: result.after.budget ?? campaign.budget,
-      name: result.after.name ?? campaign.name,
-      ...(body.start ? { startAt: new Date(body.start) } : {}),
-      ...(body.noEnd === true ? { endAt: null } : body.end ? { endAt: new Date(body.end) } : {}),
-    } });
-  }
+  await prisma.adCampaign.update({ where: { id: campaign.id }, data: {
+    status: result.after.status ?? campaign.status,
+    budget: result.after.budget ?? campaign.budget,
+    name: result.after.name ?? campaign.name,
+    ...(body.start ? { startAt: new Date(body.start) } : {}),
+    ...(body.noEnd === true ? { endAt: null } : body.end ? { endAt: new Date(body.end) } : {}),
+  } });
   await writeAudit({ userId: session.userId, orgId: scope.orgId, action: `ads.campaign_${body.action}`, target: result.campaignId, meta: { sourceCampaignId: campaign.campaignId, before: result.before, after: result.after } });
   return ok(result);
 });

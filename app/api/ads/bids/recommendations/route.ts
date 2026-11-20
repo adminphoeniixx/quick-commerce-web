@@ -5,6 +5,7 @@ import { adsMeta, adsScope } from "@/lib/ads/queries";
 import { listBids } from "@/lib/ads/bids";
 import { recommendBids } from "@/lib/ads/bid-recommendations";
 import { analyzeBidRecommendations } from "@/lib/ads/bid-analysis-agents";
+import { addBidResearch } from "@/lib/ads/bid-research";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,8 @@ export const GET = handler(async (req) => {
     const value = (async () => {
       const data = await listBids(scope, range, { activeOnly: true });
       const rows = data.campaigns.flatMap((campaign) => campaign.keywords.flatMap((keyword) => keyword.bids.map((bid) => ({ campaignId: campaign.campaignId, campaignName: campaign.name, campaignStatus: campaign.status, keyword: keyword.keyword, matchType: bid.matchType, cpm: bid.cpm, hasOpenChange: !!bid.open, impressions: bid.perf?.impressions ?? 0, spend: bid.perf?.spend ?? 0, sales: bid.perf?.sales ?? 0, atc: bid.perf?.atc ?? 0, position: bid.perf?.position ?? null, roas: bid.perf?.roas ?? null }))));
-      const drafts = recommendBids(rows, data.limits);
+      const researched = await addBidResearch(scope, rows, range);
+      const drafts = recommendBids(researched, data.limits);
       return { ...(await analyzeBidRecommendations(drafts)), range: data.range, generatedAt: new Date().toISOString() };
     })();
     hit = { expires: Date.now() + 10 * 60_000, value }; cache.set(key, hit); value.catch(() => cache.delete(key));

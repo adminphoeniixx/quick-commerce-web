@@ -26,6 +26,7 @@ const TABS = [
   { href: "/dashboard/ads/keywords", label: "Keywords" },
   { href: "/dashboard/ads/bids", label: "Bids" },
   { href: "/dashboard/ads/insights", label: "Account & insights" },
+  { href: "/dashboard/ads/growth", label: "Growth plan" },
 ];
 export const inr = (n: number | null | undefined) => (n == null ? "—" : "₹" + Math.round(n).toLocaleString("en-IN"));
 
@@ -37,8 +38,8 @@ function defaultRange(meta: AdsMeta) {
   return { from, to };
 }
 
-export function AdsShell({ title, subtitle, children, dated = true }: {
-  title: string; subtitle: string; dated?: boolean; children: (ctx: AdsCtx) => React.ReactNode;
+export function AdsShell({ title, subtitle, children, dated = true, allowEmpty = false }: {
+  title: string; subtitle: string; dated?: boolean; allowEmpty?: boolean; children: (ctx: AdsCtx) => React.ReactNode;
 }) {
   const path = usePathname();
   const [brands, setBrands] = useState<{ id: string; name: string }[]>([]);
@@ -125,7 +126,7 @@ export function AdsShell({ title, subtitle, children, dated = true }: {
       {dated && dates && available && meta?.from && <div className="mt-4"><DateRangeFilter value={dates} available={available} onChange={setDates} allowCompare={false} /></div>}
       <div className="mt-5">
         {!brandId || !meta || !dates ? <p className="py-10 text-center text-sm" style={{ color: "var(--muted)" }}>Loading…</p>
-          : !meta.from && !meta.account ? <Empty text="No Blinkit Ads data yet. Connect Blinkit Ads under Connections (log in with the sign-in link Blinkit emails you), then press Sync now." />
+          : !allowEmpty && !meta.from && !meta.account ? <Empty text="No Blinkit Ads data yet. Connect Blinkit Ads under Connections (log in with the sign-in link Blinkit emails you), then press Sync now." />
           : children({ brandId, meta, version, dates, query })}
       </div>
     </div>

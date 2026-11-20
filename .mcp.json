@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "qcp-browser": {
+      "type": "stdio",
+      "command": "agent/.venv/bin/python",
+      "args": ["agent/browser_mcp.py"]
+    }
+  }
+}

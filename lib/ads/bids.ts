@@ -127,7 +127,7 @@ export async function listBids(s: AdsScope, r: Range | null, f: { productId?: st
   };
 }
 
-export interface ProposedBid { campaignId: string; keyword: string; matchType: string; toCpm: number; note?: string; evidence?: unknown; dataAsOf?: string; model?: string | null; promptVersion?: string }
+export interface ProposedBid { campaignId: string; keyword: string; matchType: string; toCpm: number; note?: string; evidence?: unknown; dataAsOf?: string; model?: string | null; promptVersion?: string; growthPlanId?: bigint }
 
 /** New PENDING changes. A newer proposal for the same bid replaces an older PENDING one. */
 export async function proposeBids(s: AdsScope, email: string, userId: bigint, changes: ProposedBid[]) {
@@ -154,6 +154,8 @@ export async function proposeBids(s: AdsScope, email: string, userId: bigint, ch
 
   const rows: Prisma.AdBidChangeCreateManyInput[] = [], replace: bigint[] = [], seen = new Set<string>();
   for (const ch of changes) {
+    const recommendation = ch.evidence as { agentConsensus?: { verdict?: string } } | undefined;
+    if (recommendation && recommendation.agentConsensus?.verdict !== "approve") throw BadRequest(`AI recommendation for "${ch.keyword}" is not approved by all specialist agents`);
     const camp = campaigns.get(ch.campaignId);
     if (!camp) throw BadRequest(`Campaign ${ch.campaignId} not found: sync Blinkit Ads first`);
     if (camp.status !== "ACTIVE") throw BadRequest(`Campaign "${camp.name}" is ${camp.status.toLowerCase()}; bids can change only in active campaigns`);
@@ -176,7 +178,7 @@ export async function proposeBids(s: AdsScope, email: string, userId: bigint, ch
     rows.push({
       orgId: s.orgId, brandId: s.brandId, platformId: s.platformId, campaignId: ch.campaignId, campaignName: camp.name,
       keyword: kw.keyword, matchType: mt, fromCpm: from, toCpm: to, note: ch.note?.slice(0, 300) || null,
-      evidence: ch.evidence as Prisma.InputJsonValue | undefined, dataAsOf: ch.dataAsOf ? new Date(`${ch.dataAsOf}T00:00:00Z`) : null, model: ch.model ?? null, promptVersion: ch.promptVersion ?? null, createdBy: email,
+      evidence: ch.evidence as Prisma.InputJsonValue | undefined, dataAsOf: ch.dataAsOf ? new Date(`${ch.dataAsOf}T00:00:00Z`) : null, model: ch.model ?? null, promptVersion: ch.promptVersion ?? null, growthPlanId: ch.growthPlanId ?? null, createdBy: email,
     });
   }
   await prisma.$transaction([
@@ -194,12 +196,14 @@ export async function decideBids(s: AdsScope, email: string, userId: bigint, ids
   const to: BidStatus = action === "reject" ? "REJECTED" : action === "cancel" ? "CANCELLED" : "APPROVED";
   const uniqueIds = [...new Set(ids.map(String))].map(BigInt);
   if (uniqueIds.length !== ids.length) throw BadRequest("Duplicate bid change IDs are not allowed");
-  const eligible = await prisma.adBidChange.findMany({ where: { id: { in: uniqueIds }, brandId: s.brandId, platformId: s.platformId, status: { in: from }, ...(action === "cancel" ? { createdBy: email } : {}) }, select: { id: true } });
-  if (eligible.length !== uniqueIds.length) throw BadRequest("One or more bid changes are missing, no longer pending, or not owned by you");
-  const res = await prisma.adBidChange.updateMany({
-    where: { id: { in: uniqueIds }, brandId: s.brandId, platformId: s.platformId, status: { in: from }, ...(action === "cancel" ? { createdBy: email } : {}) },
-    data: { status: to, decidedBy: email, decidedAt: new Date(), ...(action === "retry" ? { error: null } : {}) },
-  });
+  const res = await prisma.$transaction(async (tx) => {
+    const where = { id: { in: uniqueIds }, brandId: s.brandId, platformId: s.platformId, status: { in: from }, ...(action === "cancel" ? { createdBy: email } : {}) };
+    const eligible = await tx.adBidChange.findMany({ where, select: { id: true } });
+    if (eligible.length !== uniqueIds.length) throw BadRequest("One or more bid changes are missing, no longer pending, or not owned by you");
+    const updated = await tx.adBidChange.updateMany({ where, data: { status: to, decidedBy: email, decidedAt: new Date(), ...(action === "retry" ? { error: null } : {}) } });
+    if (updated.count !== uniqueIds.length) throw BadRequest("Bid changes were updated concurrently; nothing was approved. Refresh and try again");
+    return updated;
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   await writeAudit({ userId, orgId: s.orgId, action: `ads.bids_${action}`, target: s.brandId.toString(), meta: { ids: ids.map(String), updated: res.count } });
   return { updated: res.count, apply: to === "APPROVED" && res.count > 0 };
 }

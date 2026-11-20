@@ -252,23 +252,23 @@ model Platform {
   slug       String  @unique
   brandColor String?
 
-  listings         PlatformListing[]
-  sov              ShareOfVoice[]
-  connections      PlatformConnection[]
-  syncJobs         SyncJob[]
-  analytics        AnalyticsDaily[]
-  visibility       VisibilityObservation[]
-  channelReports   ChannelReport[]
-  channelProducts  ChannelProduct[]
-  channelOrders    ChannelOrder[]
-  channelInventory ChannelInventory[]
-  adAccounts       AdAccountSnapshot[]
-  adCampaigns      AdCampaign[]
-  adCampaignDaily  AdCampaignDaily[]
-  adKeywordDaily   AdKeywordDaily[]
-  listingSeo       ListingSeoSnapshot[]
-  searchListings   SearchListingObservation[]
-  adBidChanges     AdBidChange[]
+  listings            PlatformListing[]
+  sov                 ShareOfVoice[]
+  connections         PlatformConnection[]
+  syncJobs            SyncJob[]
+  analytics           AnalyticsDaily[]
+  visibility          VisibilityObservation[]
+  channelReports      ChannelReport[]
+  channelProducts     ChannelProduct[]
+  channelOrders       ChannelOrder[]
+  channelInventory    ChannelInventory[]
+  adAccounts          AdAccountSnapshot[]
+  adCampaigns         AdCampaign[]
+  adCampaignDaily     AdCampaignDaily[]
+  adKeywordDaily      AdKeywordDaily[]
+  listingSeo          ListingSeoSnapshot[]
+  searchListings      SearchListingObservation[]
+  adBidChanges        AdBidChange[]
   adCampaignProposals AdCampaignProposal[]
 }
 
@@ -280,25 +280,25 @@ model Brand {
   logoUrl   String?
   createdAt DateTime @default(now())
 
-  org              Organization               @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  skus             Sku[]
-  keywords         Keyword[]
-  sov              ShareOfVoice[]
-  connections      PlatformConnection[]
-  importJobs       ImportJob[]
-  analytics        AnalyticsDaily[]
-  visibility       VisibilityObservation[]
-  channelReports   ChannelReport[]
-  channelProducts  ChannelProduct[]
-  channelOrders    ChannelOrder[]
-  channelInventory ChannelInventory[]
-  adAccounts       AdAccountSnapshot[]
-  adCampaigns      AdCampaign[]
-  adCampaignDaily  AdCampaignDaily[]
-  adKeywordDaily   AdKeywordDaily[]
-  listingSeo       ListingSeoSnapshot[]
-  searchListings   SearchListingObservation[]
-  adBidChanges     AdBidChange[]
+  org                 Organization               @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  skus                Sku[]
+  keywords            Keyword[]
+  sov                 ShareOfVoice[]
+  connections         PlatformConnection[]
+  importJobs          ImportJob[]
+  analytics           AnalyticsDaily[]
+  visibility          VisibilityObservation[]
+  channelReports      ChannelReport[]
+  channelProducts     ChannelProduct[]
+  channelOrders       ChannelOrder[]
+  channelInventory    ChannelInventory[]
+  adAccounts          AdAccountSnapshot[]
+  adCampaigns         AdCampaign[]
+  adCampaignDaily     AdCampaignDaily[]
+  adKeywordDaily      AdKeywordDaily[]
+  listingSeo          ListingSeoSnapshot[]
+  searchListings      SearchListingObservation[]
+  adBidChanges        AdBidChange[]
   adCampaignProposals AdCampaignProposal[]
 
   @@index([orgId])
@@ -489,22 +489,22 @@ model AnalyticsDaily {
 
 // ====================== connectors & ingestion ======================
 model PlatformConnection {
-  id              BigInt           @id @default(autoincrement())
-  orgId           BigInt
-  brandId         BigInt
-  platformId      Int
-  status          ConnectionStatus @default(DISCONNECTED)
-  encryptedSecret String? // envelope-encrypted; NEVER plaintext
-  lastVerifiedAt  DateTime?
-  lastAuthCheckAt DateTime?
-  authFailures    Int              @default(0)
-  lastError       String?
+  id                BigInt           @id @default(autoincrement())
+  orgId             BigInt
+  brandId           BigInt
+  platformId        Int
+  status            ConnectionStatus @default(DISCONNECTED)
+  encryptedSecret   String? // envelope-encrypted; NEVER plaintext
+  lastVerifiedAt    DateTime?
+  lastAuthCheckAt   DateTime?
+  authFailures      Int              @default(0)
+  lastError         String?
   // Block protection (lib/connections/guard.ts): after a block page / captcha / HTTP 429 nothing
   // touches this connection's site until the time passes. searchPausedUntil: blinkit.com search only.
   pausedUntil       DateTime?
   pauseReason       String?
   searchPausedUntil DateTime?
-  createdAt       DateTime         @default(now())
+  createdAt         DateTime         @default(now())
 
   org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
@@ -1281,31 +1281,32 @@ model SearchListingObservation {
 // applied by the server's Blinkit Ads browser session (services/browser/blinkit_ads_bids.py).
 // status: PENDING → APPROVED → APPLYING → APPLIED | CONFLICT | FAILED; or REJECTED / CANCELLED.
 model AdBidChange {
-  id           BigInt    @id @default(autoincrement())
-  orgId        BigInt
-  brandId      BigInt
-  platformId   Int // blinkit-ads
-  campaignId   String
-  campaignName String
-  keyword      String
-  matchType    String // EXACT | SMART
-  fromCpm      Decimal?  @db.Decimal(10, 2) // QCP's last synced bid when proposed
-  toCpm        Decimal   @db.Decimal(10, 2)
-  status       String    @default("PENDING")
-  note         String?
-  evidence     Json? // immutable metrics and agent decision behind an AI recommendation
-  dataAsOf     DateTime? @db.Date
-  model        String?
+  id            BigInt    @id @default(autoincrement())
+  orgId         BigInt
+  brandId       BigInt
+  platformId    Int // blinkit-ads
+  campaignId    String
+  campaignName  String
+  keyword       String
+  matchType     String // EXACT | SMART
+  fromCpm       Decimal?  @db.Decimal(10, 2) // QCP's last synced bid when proposed
+  toCpm         Decimal   @db.Decimal(10, 2)
+  status        String    @default("PENDING")
+  note          String?
+  evidence      Json? // immutable metrics and agent decision behind an AI recommendation
+  dataAsOf      DateTime? @db.Date
+  model         String?
   promptVersion String?
-  createdBy    String // email
-  decidedBy    String? // email of approver / rejecter
-  decidedAt    DateTime?
-  appliedAt    DateTime?
-  beforeCpm    Decimal?  @db.Decimal(10, 2) // what Blinkit showed right before applying
-  afterCpm     Decimal?  @db.Decimal(10, 2) // what Blinkit showed after applying (verified)
-  error        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  growthPlanId  BigInt? // SalesGrowthPlan that drafted this change, if any
+  createdBy     String // email
+  decidedBy     String? // email of approver / rejecter
+  decidedAt     DateTime?
+  appliedAt     DateTime?
+  beforeCpm     Decimal?  @db.Decimal(10, 2) // what Blinkit showed right before applying
+  afterCpm      Decimal?  @db.Decimal(10, 2) // what Blinkit showed after applying (verified)
+  error         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
@@ -1313,41 +1314,236 @@ model AdBidChange {
 
   @@index([brandId, platformId, status])
   @@index([brandId, platformId, campaignId])
+  @@index([growthPlanId])
 }
 
 // Durable, idempotent human approval record for an AI-assisted campaign launch.
 model AdCampaignProposal {
-  id                 BigInt   @id @default(autoincrement())
+  id                 BigInt    @id @default(autoincrement())
   orgId              BigInt
   brandId            BigInt
   platformId         Int
   templateCampaignId String
   name               String
-  budget             Decimal  @db.Decimal(14, 2)
-  startAt            DateTime @db.Date
-  endAt              DateTime @db.Date
-  status             String   @default("PENDING_APPROVAL")
-  evidence            Json
-  forecast            Json
-  agentReviews        Json
-  dataAsOf            DateTime @db.Date
-  model               String?
-  promptVersion       String
-  idempotencyKey      String
-  payloadHash         String
-  createdBy           String
-  decidedBy           String?
-  decidedAt           DateTime?
-  remoteCampaignId    String?
-  error               String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  budget             Decimal   @db.Decimal(14, 2)
+  startAt            DateTime  @db.Date
+  endAt              DateTime  @db.Date
+  status             String    @default("PENDING_APPROVAL")
+  evidence           Json
+  forecast           Json
+  agentReviews       Json
+  dataAsOf           DateTime  @db.Date
+  model              String?
+  promptVersion      String
+  idempotencyKey     String
+  payloadHash        String
+  createdBy          String
+  decidedBy          String?
+  decidedAt          DateTime?
+  remoteCampaignId   String?
+  error              String?
+  growthPlanId       BigInt?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   org      Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   brand    Brand        @relation(fields: [brandId], references: [id], onDelete: Cascade)
   platform Platform     @relation(fields: [platformId], references: [id])
 
+  @@index([growthPlanId])
   @@unique([orgId, idempotencyKey])
   @@index([brandId, platformId, status])
   @@index([templateCampaignId])
+}
+
+// Seller-owned objective used by the sales-growth orchestration graph.
+model SalesGrowthGoal {
+  id                   BigInt   @id @default(autoincrement())
+  orgId                BigInt
+  brandId              BigInt
+  targetSalesGrowthPct Decimal  @db.Decimal(6, 2)
+  maxDailyAdSpend      Decimal  @db.Decimal(14, 2)
+  minimumRoas          Decimal  @db.Decimal(8, 3)
+  horizonDays          Int
+  active               Boolean  @default(true)
+  // Autopilot: the worker re-researches a fresh plan on this cadence. Execution still needs human approval.
+  autopilot            Boolean  @default(false)
+  replanEveryDays      Int      @default(7)
+  notifyEmail          String?
+  createdBy            String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([orgId, brandId, active])
+  @@index([active, autopilot])
+}
+
+// Researched plan. Lifecycle: QUEUED → RESEARCHING → DRAFT | FAILED → APPROVED | REJECTED | EXPIRED | SUPERSEDED
+// → MATERIALIZED → COMPLETED. The research snapshot (baseline/forecast/actions) is immutable once DRAFT.
+model SalesGrowthPlan {
+  id             BigInt    @id @default(autoincrement())
+  orgId          BigInt
+  brandId        BigInt
+  goalId         BigInt
+  status         String    @default("QUEUED")
+  trigger        String    @default("manual") // manual | autopilot
+  baseline       Json?
+  forecast       Json?
+  actions        Json?
+  agentReviews   Json?
+  dataAsOf       DateTime? @db.Date
+  model          String?
+  promptVersion  String
+  payloadHash    String?
+  error          String?
+  attempts       Int       @default(0)
+  createdBy      String
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  approvedBy     String?
+  approvedAt     DateTime?
+  materializedAt DateTime?
+  measuredAt     DateTime?
+  completedAt    DateTime?
+  outcome        Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  planActions SalesGrowthAction[]
+
+  @@unique([orgId, payloadHash])
+  @@index([brandId, status, createdAt])
+  @@index([status, materializedAt])
+  @@index([goalId])
+}
+
+// One mutable execution record per researched action. Status: PROPOSED → APPROVED | REJECTED → DRAFTED
+// → LIVE | FAILED | DISCARDED. BLOCKED = failed revalidation when drafts were created.
+model SalesGrowthAction {
+  id                 BigInt    @id @default(autoincrement())
+  planId             BigInt
+  orgId              BigInt
+  brandId            BigInt
+  actionKey          String
+  type               String // BID | CAMPAIGN
+  priority           Int
+  title              String
+  campaignId         String?
+  keyword            String?
+  matchType          String?
+  payload            Json
+  forecastSalesDelta Json
+  status             String    @default("PROPOSED")
+  bidChangeId        BigInt?
+  campaignProposalId BigInt?
+  remoteCampaignId   String?
+  error              String?
+  decidedBy          String?
+  decidedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  plan SalesGrowthPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, actionKey])
+  @@index([brandId, status])
+}
+
+// Learning memory: what a LIVE growth action actually achieved once its plan completed.
+model GrowthActionOutcome {
+  id               BigInt   @id @default(autoincrement())
+  orgId            BigInt
+  brandId          BigInt
+  planId           BigInt? // null for HISTORICAL events
+  actionKey        String
+  source           String   @default("PLAN") // PLAN | HISTORICAL
+  eventKey         String? // HISTORICAL: stable id of the detected event
+  type             String // BID | CAMPAIGN
+  direction        String // increase | decrease | launch
+  campaignId       String?
+  keyword          String?
+  matchType        String?
+  changePct        Float?
+  forecastLow      Float
+  forecastHigh     Float
+  beforeSales      Float
+  beforeSpend      Float
+  afterSales       Float
+  afterSpend       Float
+  controlGrowthPct Float?
+  salesDelta       Float // lift-adjusted: after − before × (1 + control growth)
+  forecastRatio    Float? // salesDelta / forecast reference; null when the forecast reference is ~0
+  measuredFrom     DateTime @db.Date
+  measuredTo       DateTime @db.Date
+  createdAt        DateTime @default(now())
+
+  @@unique([planId, actionKey])
+  @@unique([brandId, eventKey])
+  @@index([brandId, type, direction, createdAt])
+  @@index([brandId, campaignId, keyword])
+}
+
+// Forecast correction learned from outcomes, per brand × action type × direction.
+model GrowthCalibration {
+  id         BigInt   @id @default(autoincrement())
+  orgId      BigInt
+  brandId    BigInt
+  type       String
+  direction  String
+  sampleSize Int
+  rawRatio   Float
+  factor     Float
+  updatedAt  DateTime @updatedAt
+
+  @@unique([brandId, type, direction])
+}
+
+// Learned from blinkit.com search history × keyword sales: how sales respond to rank, price gap and competitor stock-outs.
+// Correlational evidence for the agents only; never a gate.
+model KeywordMarketInsight {
+  id                  BigInt   @id @default(autoincrement())
+  orgId               BigInt
+  brandId             BigInt
+  keyword             String // lower-case
+  sampleDays          Int
+  meanDailySales      Float
+  avgOrganicRank      Float?
+  rankSensitivityPct  Float? // % change in daily keyword sales per 1 position worse organic rank
+  avgPriceGapPct      Float? // own price vs competitor median, %
+  priceSensitivityPct Float? // % change in daily keyword sales per +1 pt price gap
+  stockoutUpliftPct   Float? // sales lift on days ≥20% of competitors in the top 10 are sold out
+  adShareTop10        Float? // share of ad cards in the top 10 results
+  confidence          String // insufficient | low | medium | high
+  updatedAt           DateTime @updatedAt
+
+  @@unique([brandId, keyword])
+}
+
+// Human-approved change to an existing Blinkit Ads campaign (budget update, restart, stop).
+// PENDING → APPROVED → APPLYING → APPLIED | FAILED; or REJECTED. Applied with an expected-status/budget check.
+model AdCampaignChange {
+  id             BigInt    @id @default(autoincrement())
+  orgId          BigInt
+  brandId        BigInt
+  platformId     Int
+  campaignId     String
+  campaignName   String
+  kind           String // update | restart | stop
+  expectedStatus String
+  expectedBudget Decimal?  @db.Decimal(14, 2)
+  toBudget       Decimal?  @db.Decimal(14, 2)
+  status         String    @default("PENDING")
+  reason         String
+  evidence       Json
+  growthPlanId   BigInt?
+  createdBy      String
+  decidedBy      String?
+  decidedAt      DateTime?
+  appliedAt      DateTime?
+  error          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([brandId, platformId, status])
+  @@index([growthPlanId])
 }

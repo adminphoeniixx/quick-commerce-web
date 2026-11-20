@@ -28,14 +28,17 @@ export const POST = handler(async (req, ctx: { params: { id: string } }) => {
   }
   if (proposal.status === "APPLIED") return ok({ proposalId: id.toString(), status: proposal.status, campaignId: proposal.remoteCampaignId });
   if (proposal.status !== "PENDING_APPROVAL") throw Conflict(`Proposal is already ${proposal.status.toLowerCase()}`);
-  const evidence = proposal.evidence as { launchReady?: boolean }, consensus = proposal.agentReviews as { verdict?: string; reviews?: unknown[] };
-  if (!evidence.launchReady || consensus.verdict !== "launch" || consensus.reviews?.length !== 3) throw BadRequest("Proposal did not pass all deterministic and specialist launch gates");
+  const evidence = proposal.evidence as { launchReady?: boolean; source?: string; safetyPassed?: boolean }, consensus = proposal.agentReviews as { verdict?: string; reviews?: unknown[] };
+  const manualDraft = evidence.source === "manual";
+  const agentApproved = evidence.launchReady && consensus.verdict === "launch" && consensus.reviews?.length === 3;
+  if (manualDraft ? !evidence.safetyPassed : !agentApproved) throw BadRequest("Proposal did not pass the required launch gates");
   if (Date.now() - proposal.dataAsOf.getTime() > 3 * 86400_000) throw BadRequest("Proposal evidence is stale; refresh campaign analysis");
   const [template, connection] = await Promise.all([
     prisma.adCampaign.findUnique({ where: { brandId_platformId_campaignId: { brandId: scope.brandId, platformId: scope.platformId, campaignId: proposal.templateCampaignId } } }),
     prisma.platformConnection.findUnique({ where: { brandId_platformId: { brandId: scope.brandId, platformId: scope.platformId } } }),
   ]);
   if (!template) throw NotFound("Template campaign not found");
+  if (manualDraft && !["STOPPED", "COMPLETED"].includes(template.status)) throw BadRequest("Template campaign is no longer stopped; refresh before launch");
   if (!connection || connection.status !== "CONNECTED") throw BadRequest("Reconnect Blinkit Ads before launch");
   const forecast = proposal.forecast as { maximumSpend?: number };
   const wallet = await prisma.adAccountSnapshot.findFirst({ where: { brandId: scope.brandId, platformId: scope.platformId }, orderBy: { snapshotDate: "desc" } });

@@ -116,6 +116,33 @@ off the HTTP path, backed by Redis + BullMQ.
 - **Scheduled sync** (`SyncSchedule`): platforms with a browser connector (Blinkit)
   sync on connect and on demand (see §7a); no schedules are created for them. Other platforms have no live API
   connector, so a fired schedule records `blocked: no authorized connector`.
+- **Sales-growth agents** (`qcp-growth`, concurrency `GROWTH_CONCURRENCY`, default 2;
+  code in `lib/ads/growth-lifecycle.ts`, pure rules in `lib/ads/growth-rules.ts`):
+  - `POST /api/ads/growth/plans` creates a `SalesGrowthPlan` (QUEUED) under a per-brand
+    advisory lock (one plan researching per brand) and returns `202`. The worker runs
+    the bid and campaign specialist agents (3 attempts, 30 s exponential backoff; 4xx
+    errors such as "no synced data" fail at once). The UI polls `GET /plans/:id`.
+  - Lifecycle: `QUEUED → RESEARCHING → DRAFT | FAILED → APPROVED | REJECTED | EXPIRED |
+    SUPERSEDED → MATERIALIZED → COMPLETED`. Identical evidence (same `payloadHash`)
+    is not researched twice; a new DRAFT supersedes older undecided plans.
+  - Each action is a `SalesGrowthAction` row. People approve a subset of actions.
+    Materialize re-checks evidence age (≤ 3 days), that the goal is unchanged and the
+    daily spend ceiling against today's active budgets. Actions that fail are `BLOCKED`
+    with the reason; the rest become `AdBidChange` / `AdCampaignProposal` rows tagged
+    with `growthPlanId`. Execution still needs approval on the bids and campaigns pages.
+    Their state syncs back as `DRAFTED → LIVE | FAILED | DISCARDED`.
+  - The hourly sweep (`growth-sweep`, `GROWTH_SWEEP_CRON`, default `17 * * * *`)
+    re-queues research stuck > 30 min, expires stale DRAFT/APPROVED plans, measures
+    MATERIALIZED plans every 6 h and completes them at the horizon. It also starts a
+    new plan for goals with `autopilot` on, every `replanEveryDays`, but only when no
+    plan is open or being measured.
+  - Measurement compares the elapsed window with the pre-plan run-rate. It reports
+    lift as plan-touched campaigns' growth minus untouched campaigns' growth
+    (difference-in-differences), plus where the result sits against the forecast range.
+  - Email (`notifyEmail` on the goal, otherwise the creator) goes out when a plan is
+    ready, fails or completes.
+  - Without `REDIS_URL`, research runs in-process after the response, and the sweep
+    does not run.
 
 ## 7a. Browser connector (Blinkit)
 

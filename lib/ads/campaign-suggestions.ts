@@ -4,7 +4,14 @@ export interface SuggestionSource {
   period: { spend: number; sales: number; roas: number | null; impressions: number }; daily?: DailyEvidence[];
 }
 export interface AgentReview { role: string; verdict: "launch" | "review" | "skip"; summary: string; drivers: string[]; risks: string[] }
-export interface SalesToolEvidence { sellerGmv: number; sellerUnits: number; tacos: number | null; attributedUnits: number; newUsers: number; atc: number; directSales: number; indirectSales: number; products: { productId: string; name: string | null; sellerUnits: number; sellerGmv: number }[]; topKeywords: { keyword: string; spend: number; sales: number; roas: number | null }[] }
+export interface SalesToolEvidence {
+  sellerGmv: number; sellerUnits: number; tacos: number | null; attributedUnits: number; newUsers: number; atc: number; directSales: number; indirectSales: number;
+  sellableUnits: number | null; minimumAvailabilityPct: number | null; bestSearchRank: number | null; bestOrganicRank: number | null;
+  ownMedianPrice: number | null; competitorMedianPrice: number | null; listingIssueCount: number;
+  dataAsOf: { seller: string; inventory: string | null; listing: string | null; search: string | null };
+  products: { productId: string; name: string | null; sellerUnits: number; sellerGmv: number }[];
+  topKeywords: { keyword: string; spend: number; sales: number; roas: number | null }[];
+}
 export interface CampaignSuggestion {
   id: string; templateId: string; templateName: string; name: string; type: string; reason: string; evidence: string;
   budget: number; start: string; end: string; productCount: number; expectedStatus: string; expectedBudget: number | null;
@@ -13,6 +20,8 @@ export interface CampaignSuggestion {
   confidence: "low" | "medium" | "high"; launchReady: boolean; benefitExplanation: string; assumptions: string[]; risks: string[];
   agentConsensus?: { verdict: "launch" | "review" | "skip"; summary: string; reviews: AgentReview[] };
   salesTools?: SalesToolEvidence;
+  pastOutcomes?: import("./growth-learning").PastOutcome[];
+  marketInsights?: ({ keyword: string } & import("./market-learning").MarketInsight)[];
 }
 const iso = (date: Date) => date.toISOString().slice(0, 10);
 const money = (value: number) => `₹${Math.round(value).toLocaleString("en-IN")}`;

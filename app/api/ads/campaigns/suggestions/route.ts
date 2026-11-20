@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/ratelimit";
 import { requireSession } from "@/lib/auth/session";
 import { createHash } from "node:crypto";
+import { campaignProposalKey } from "@/lib/ads/campaign-proposal-key";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,8 @@ export const GET = handler(async (req) => {
   const result = await cached.value as any;
   const suggestions = await Promise.all((result.suggestions ?? []).map(async (suggestion: any) => {
     const payload = JSON.stringify({ templateId: suggestion.templateId, name: suggestion.name, budget: suggestion.budget, start: suggestion.start, end: suggestion.end, evidence: suggestion.evidence, forecast: suggestion.projectedSales, consensus: suggestion.agentConsensus });
-    const payloadHash = createHash("sha256").update(payload).digest("hex"), idempotencyKey = `campaign:${payloadHash}`;
+    const payloadHash = createHash("sha256").update(payload).digest("hex");
+    const idempotencyKey = campaignProposalKey({ brandId: scope.brandId, platformId: scope.platformId, templateId: suggestion.templateId, start: suggestion.start, end: suggestion.end, budget: suggestion.budget, dataAsOf: result.range.to, promptVersion: "campaign-v2" });
     const proposal = await prisma.adCampaignProposal.upsert({ where: { orgId_idempotencyKey: { orgId: scope.orgId, idempotencyKey } }, create: {
       orgId: scope.orgId, brandId: scope.brandId, platformId: scope.platformId, templateCampaignId: suggestion.templateId, name: suggestion.name, budget: suggestion.budget,
       startAt: new Date(`${suggestion.start}T00:00:00Z`), endAt: new Date(`${suggestion.end}T00:00:00Z`), evidence: { launchReady: suggestion.launchReady, confidence: suggestion.confidence, historicalSpend: suggestion.historicalSpend, historicalSales: suggestion.historicalSales, historicalRoas: suggestion.historicalRoas, salesTools: suggestion.salesTools ?? null },

@@ -4,8 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Pencil, Play, Square, X } from "lucide-react";
 import { apiPost, ApiError } from "@/lib/client/api";
 import { inr } from "./AdsShell";
-import type { ManagedCampaign } from "@/lib/ads/campaigns/types";
-import { campaignFormFrom, validateCampaignForm } from "@/lib/ads/campaigns/validation";
+
+export interface ManagedCampaign {
+  campaignId: string;
+  name: string;
+  status: string;
+  budget: number | null;
+  startAt: string | null;
+  endAt: string | null;
+}
 
 type Mode = "update" | "restart" | "stop";
 
@@ -22,8 +29,10 @@ export function CampaignActions({ campaign, query }: { campaign: ManagedCampaign
 
   useEffect(() => {
     if (!mode) return;
-    const form = campaignFormFrom(campaign);
-    setName(form.name); setBudget(form.budget); setNoEnd(form.noEnd); setEnd(form.end);
+    setName(campaign.name);
+    setBudget(String(campaign.budget ?? ""));
+    setNoEnd(campaign.endAt == null);
+    setEnd(campaign.endAt?.slice(0, 10) ?? "");
     setError("");
   }, [mode, campaign]);
 
@@ -35,7 +44,12 @@ export function CampaignActions({ campaign, query }: { campaign: ManagedCampaign
 
   const validation = useMemo(() => {
     if (!mode || mode === "stop") return "";
-    return validateCampaignForm({ name, budget, noEnd, end });
+    const amount = Number(budget);
+    if (!name.trim()) return "Campaign name is required.";
+    if (!Number.isFinite(amount) || amount <= 0) return "Enter a valid positive budget.";
+    if (!noEnd && !end) return "Choose an end date or select no end date.";
+    if (end && end < new Date().toISOString().slice(0, 10)) return "End date cannot be in the past.";
+    return "";
   }, [mode, name, budget, noEnd, end]);
 
   const submit = async () => {

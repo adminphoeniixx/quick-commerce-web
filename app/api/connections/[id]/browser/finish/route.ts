@@ -6,7 +6,7 @@ import { assertCsrf } from "@/lib/auth/session";
 import { writeAudit } from "@/lib/audit";
 import { ownedBrowserConnection } from "@/lib/connections/owned";
 import { sessionState, stopSession } from "@/lib/connections/browser";
-import { registerSchedule, unregisterSchedule } from "@/lib/connections/scheduler";
+import { registerSchedule } from "@/lib/connections/scheduler";
 import { queuesEnabled } from "@/lib/queue/connection";
 import { scheduledQueue } from "@/lib/queue/queues";
 import { runBrowserSync } from "@/lib/connections/sync";
@@ -22,13 +22,13 @@ export const POST = handler(async (req, ctx: { params: { id: string } }) => {
   if (!state.loggedIn) throw BadRequest(`Not logged in to ${c.platform.name} yet`);
   await stopSession(c.id); // closing the window flushes cookies to the saved profile
 
-  await prisma.platformConnection.update({ where: { id: c.id }, data: { status: "CONNECTED", lastVerifiedAt: new Date(), lastError: null } });
+  await prisma.platformConnection.update({ where: { id: c.id }, data: { status: "CONNECTED", lastVerifiedAt: new Date(), lastError: null, authFailures: 0 } });
   // Keep session warm with a lightweight check. Two confirmed failures are
   // required before marking it expired; Blinkit can still revoke its token.
-  const schedules = await prisma.syncSchedule.findMany({ where: { orgId: c.orgId, brandId: c.brandId, platformId: c.platformId } });
-  await Promise.all(schedules.map(unregisterSchedule));
-  await prisma.syncSchedule.deleteMany({ where: { id: { in: schedules.map((s) => s.id) } } });
-  const authSchedule = await prisma.syncSchedule.create({ data: { orgId: c.orgId, brandId: c.brandId, platformId: c.platformId, dataType: "auth_health", cron: "17 */8 * * *", enabled: true, lastStatus: "registered" } });
+  const existingAuthSchedule = await prisma.syncSchedule.findFirst({ where: { orgId: c.orgId, brandId: c.brandId, platformId: c.platformId, dataType: "auth_health" }, orderBy: { id: "asc" } });
+  const authSchedule = existingAuthSchedule
+    ? await prisma.syncSchedule.update({ where: { id: existingAuthSchedule.id }, data: { cron: "17 */8 * * *", enabled: true, lastStatus: "registered" } })
+    : await prisma.syncSchedule.create({ data: { orgId: c.orgId, brandId: c.brandId, platformId: c.platformId, dataType: "auth_health", cron: "17 */8 * * *", enabled: true, lastStatus: "registered" } });
   await registerSchedule(authSchedule);
 
   if (queuesEnabled()) {

@@ -14,6 +14,7 @@ export class ApiError extends Error {
 }
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
+let refreshInFlight: Promise<boolean> | null = null;
 
 async function raw(method: Method, path: string, body?: unknown): Promise<Response> {
   const headers: Record<string, string> = {};
@@ -30,11 +31,19 @@ async function raw(method: Method, path: string, body?: unknown): Promise<Respon
   });
 }
 
+async function refreshAuth(): Promise<boolean> {
+  if (refreshInFlight) return refreshInFlight;
+  const run = async () => (await raw("POST", "/api/auth/refresh")).ok;
+  refreshInFlight = (typeof navigator !== "undefined" && navigator.locks
+    ? navigator.locks.request("qcp-auth-refresh", run)
+    : run()).finally(() => { refreshInFlight = null; });
+  return refreshInFlight;
+}
+
 export async function api<T = any>(method: Method, path: string, body?: unknown): Promise<T> {
   let res = await raw(method, path, body);
   if (res.status === 401 && path !== "/api/auth/refresh") {
-    const refreshed = await raw("POST", "/api/auth/refresh");
-    if (refreshed.ok) res = await raw(method, path, body);
+    if (await refreshAuth()) res = await raw(method, path, body);
   }
   const json = await res.json().catch(() => ({}));
   if (!res.ok || json?.status === "error") {

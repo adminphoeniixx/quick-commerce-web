@@ -7,10 +7,20 @@ import type { NormalizedPricingRow, RowError } from "./contracts";
 import { skuMap, makeListingResolver, makeCityResolver } from "./resolve";
 import { createImportJob, finalizeImportJob, type CoreResult } from "./job";
 import type { IngestResult } from "./ingestAvailability";
-import { dedupeLast } from "./dedupe";
 
 export interface PriceCtx {
   orgId: bigint; brandId: bigint; platformSlug: PlatformSlug; source: ImportSource; fileName?: string;
+}
+
+function dedupe(rows: NormalizedPricingRow[]) {
+  const map = new Map<string, NormalizedPricingRow>();
+  let duplicates = 0;
+  for (const r of rows) {
+    const key = `${r.skuCode}|${r.cityName}|${r.date}`;
+    if (map.has(key)) duplicates++;
+    map.set(key, r);
+  }
+  return { merged: [...map.values()], duplicates };
 }
 
 export async function ingestPricingCore(
@@ -23,7 +33,7 @@ export async function ingestPricingCore(
   const platform = await prisma.platform.findUnique({ where: { slug: ctx.platformSlug }, select: { id: true } });
   if (!platform) throw NotFound("Unknown platform");
 
-  const { merged, duplicates } = dedupeLast(parsed.rows, (r) => `${r.skuCode}|${r.cityName}|${r.date}`);
+  const { merged, duplicates } = dedupe(parsed.rows);
   const errors: RowError[] = [...parsed.errors];
   const codes = await skuMap(ctx.brandId);
   const listingOf = makeListingResolver(platform.id);

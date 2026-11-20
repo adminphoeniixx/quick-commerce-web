@@ -1,7 +1,7 @@
 // Dedicated BullMQ worker process. Run with: npm run worker
 import { Worker } from "bullmq";
 import { closeRedisConnection, redisConnection } from "@/lib/queue/connection";
-import { QUEUE, MAX_ATTEMPTS, type ImportJobData, type AggregationJobData, type ScheduledJobData } from "@/lib/queue/queues";
+import { QUEUE, MAX_ATTEMPTS, type ImportJobData, type AggregationJobData, type ScheduledJobData, type GrowthJobData } from "@/lib/queue/queues";
 import { processImportJob, processAggregation, processScheduledSync } from "@/lib/queue/processors";
 import { prisma } from "@/lib/db";
 import { logger } from "@/lib/logger";
@@ -10,6 +10,10 @@ import { cleanupExpiredImports } from "@/lib/ingest/cleanup";
 import { recoverSchedules } from "@/lib/connections/scheduler";
 import { runBrowserSync } from "@/lib/connections/sync";
 import { processBidApply } from "@/lib/ads/bids";
+import { registerGrowthSweep, runGrowthResearch, runGrowthSweep } from "@/lib/ads/growth-lifecycle";
+import { learnFromHistory } from "@/lib/ads/growth-history";
+import { computeMarketInsights } from "@/lib/ads/market-learning";
+import { runAgentSearch, type WebScrapeJob } from "@/lib/ads/web-research";
 
 validateEnvironment();
 
@@ -38,6 +42,20 @@ const schedWorker = new Worker<ScheduledJobData>(
   { connection, concurrency: 1 },
 );
 
+// Sales-growth research (LLM agents, minutes long) and the hourly lifecycle sweep.
+const growthWorker = new Worker<GrowthJobData>(
+  QUEUE.GROWTH,
+  async (job) => job.data.sweep
+    ? runGrowthSweep()
+    : job.data.scrapeBrandId
+    ? runAgentSearch(job.data as WebScrapeJob)
+    : job.data.learnBrandId
+    ? computeMarketInsights(BigInt(job.data.learnOrgId!), BigInt(job.data.learnBrandId)).then(() => learnFromHistory(BigInt(job.data.learnOrgId!), BigInt(job.data.learnBrandId!)))
+    : runGrowthResearch(BigInt(job.data.planId!), job.attemptsMade + 1 >= (job.opts.attempts ?? 1)),
+  { connection, concurrency: Number(process.env.GROWTH_CONCURRENCY ?? 2), lockDuration: 10 * 60_000 },
+);
+growthWorker.on("failed", (job, err) => logger.error("worker.growth_failed", { queueJobId: job?.id, attemptsMade: job?.attemptsMade, error: err }));
+
 // Dead-letter handling: mark the ImportJob DEAD_LETTERED on the final failed attempt.
 importWorker.on("failed", async (job, err) => {
   if (!job) return;
@@ -53,11 +71,12 @@ importWorker.on("failed", async (job, err) => {
 importWorker.on("completed", (job) => logger.info("worker.import_completed", { queueJobId: job.id }));
 aggWorker.on("failed", (job, err) => logger.error("worker.aggregation_failed", { queueJobId: job?.id, error: err }));
 
-for (const w of [importWorker, aggWorker, schedWorker]) {
+for (const w of [importWorker, aggWorker, schedWorker, growthWorker]) {
   w.on("error", (e) => logger.error("worker.error", { error: e }));
 }
 
 logger.info("worker.ready", { importConcurrency, aggregationConcurrency: 2, scheduledConcurrency: 1 });
+registerGrowthSweep().then((ok) => logger.info("worker.growth_sweep_registered", { ok })).catch((error) => logger.error("worker.growth_sweep_register_failed", { error }));
 recoverSchedules().then((count) => logger.info("worker.schedules_recovered", { count })).catch((error) => logger.error("worker.schedule_recovery_failed", { error }));
 
 const cleanupEveryMs = Number(process.env.IMPORT_CLEANUP_INTERVAL_MS ?? 6 * 60 * 60 * 1000);
@@ -72,7 +91,7 @@ async function shutdown(signal: string) {
   logger.info("worker.shutdown_started", { signal });
   const forceTimer = setTimeout(() => { logger.error("worker.shutdown_timeout", { signal }); process.exit(1); }, Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 30000));
   forceTimer.unref();
-  await Promise.allSettled([importWorker.close(), aggWorker.close(), schedWorker.close()]);
+  await Promise.allSettled([importWorker.close(), aggWorker.close(), schedWorker.close(), growthWorker.close()]);
   await prisma.$disconnect();
   await closeRedisConnection();
   clearTimeout(forceTimer);

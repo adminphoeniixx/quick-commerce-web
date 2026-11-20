@@ -13,24 +13,10 @@ import { runBrowserSync } from "@/lib/connections/sync";
 import { queuesEnabled } from "@/lib/queue/connection";
 import { scheduledQueue } from "@/lib/queue/queues";
 import { SEARCH_RUNS_PER_DAY_TOTAL, pauseMessage, searchPauseMessage } from "@/lib/connections/guard";
+import { SEARCH_RUNS_PER_DAY, searchAllowed, searchRunsToday, topAdKeywords } from "@/lib/seo/search-budget";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const SEARCH_RUNS_PER_DAY = 2; // per delivery location
-const TOP_KEYWORDS = 10;
-
-const CITY_ALIAS: Record<string, string[]> = { gurugram: ["gurgaon"], gurgaon: ["gurugram"], bengaluru: ["bangalore"], bangalore: ["bengaluru"] };
-/** Runs already made today for the city named in a free-text area ("Sector 50 Gurugram" → Gurugram). */
-function runsFor(location: string, runsToday: Record<string, number>) {
-  const text = location.toLowerCase();
-  return Math.max(0, ...Object.entries(runsToday).filter(([city]) => {
-    const c = city.toLowerCase();
-    return [c, ...(CITY_ALIAS[c] ?? [])].some((n) => n && text.includes(n));
-  }).map(([, n]) => n));
-}
-
-const istDayStart = () => { const d = new Date(Date.now() + 5.5 * 3600_000); d.setUTCHours(0, 0, 0, 0); return new Date(d.getTime() - 5.5 * 3600_000); };
 
 async function context(req: Request) {
   const s = await adsScope(req);
@@ -39,24 +25,17 @@ async function context(req: Request) {
     where: { brandId_platformId: { brandId: s.brandId, platformId: seller } },
     select: { id: true, status: true, lastError: true, pausedUntil: true, pauseReason: true, searchPausedUntil: true, platform: { select: { name: true, slug: true } } },
   }) : null;
-  const to = new Date(), from = new Date(to.getTime() - 30 * 86400_000);
-  const keywords = (await prisma.$queryRaw<{ keyword: string }[]>`
-    SELECT lower(label) AS keyword FROM "AdKeywordDaily"
-    WHERE "brandId" = ${s.brandId} AND "platformId" = ${s.platformId} AND dimension = 'keyword' AND date BETWEEN ${from} AND ${to}
-      AND COALESCE("matchType", '') <> 'PLACEMENT' -- "similar products recommendation" etc. are ad slots, not searches
-    GROUP BY 1 ORDER BY SUM("directSales" + "indirectSales") DESC, SUM(spend) DESC LIMIT ${TOP_KEYWORDS}`).map((k) => k.keyword);
-  // Today's blinkit.com search runs per city, from the panel and the agent MCP alike (one observedAt per run).
-  const [runs, last] = seller ? await Promise.all([
-    prisma.$queryRaw<{ city: string; n: number }[]>`
-      SELECT city, COUNT(DISTINCT "observedAt")::int AS n FROM "SearchListingObservation"
-      WHERE "brandId" = ${s.brandId} AND "platformId" = ${seller} AND "observedAt" >= ${istDayStart()} GROUP BY city`,
+  const keywords = await topAdKeywords(s.brandId, s.platformId);
+  // Today's blinkit.com search runs per city, from the panel, the agent MCP and growth agents alike (one observedAt per run).
+  const [runsToday, last] = seller ? await Promise.all([
+    searchRunsToday(s.brandId, seller),
     prisma.searchListingObservation.findFirst({ where: { brandId: s.brandId, platformId: seller }, orderBy: { observedAt: "desc" }, select: { location: true } }),
-  ]) : [[], null];
+  ]) : [{} as Record<string, number>, null];
   // Areas already searched (newest first) for the area dropdown.
   const recent = seller ? (await prisma.$queryRaw<{ location: string }[]>`
     SELECT location FROM "SearchListingObservation" WHERE "brandId" = ${s.brandId} AND "platformId" = ${seller} AND location IS NOT NULL AND location <> ''
     GROUP BY location ORDER BY MAX("observedAt") DESC LIMIT 10`).map((r) => r.location) : [];
-  return { s, seller, connection, keywords, runsToday: Object.fromEntries(runs.map((r) => [r.city, r.n])), lastLocation: last?.location ?? null, recent };
+  return { s, seller, connection, keywords, runsToday, lastLocation: last?.location ?? null, recent };
 }
 
 export const GET = handler(async (req) => {
@@ -89,11 +68,8 @@ export const POST = handler(async (req) => {
   if (body.search) {
     if (body.location.length < 3) throw BadRequest("Enter a delivery area + city for the blinkit.com search, e.g. \"Sector 50 Gurugram\"");
     if (!keywords.length) throw BadRequest("No Blinkit Ads keywords yet: sync Blinkit Ads first");
-    const total = Object.values(runsToday).reduce((a, b) => a + b, 0);
-    if (total >= SEARCH_RUNS_PER_DAY_TOTAL)
-      throw BadRequest(`blinkit.com search already ran ${total}x today (all cities); the limit is ${SEARCH_RUNS_PER_DAY_TOTAL} a day to keep your IP safe. Try tomorrow.`);
-    if (runsFor(body.location, runsToday) >= SEARCH_RUNS_PER_DAY)
-      throw BadRequest(`blinkit.com search already ran ${SEARCH_RUNS_PER_DAY}x today for "${body.location}". Try tomorrow or another area.`);
+    const allowed = searchAllowed({ location: body.location, runsToday });
+    if (!allowed.ok) throw BadRequest(allowed.reason);
     search = { keywords, location: body.location };
   }
   const opts = { sales: false, catalog: false, inventory: false, seo: loggedIn, search };

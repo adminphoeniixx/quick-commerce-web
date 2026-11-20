@@ -215,3 +215,21 @@ agent/                   older experimental GPT agent (not used by the app)
 | `.env.browser` | env for the separate local browser container |
 | `.env.easypanel` | env to paste into Easypanel |
 | `ACCESS.local.md` | live URL and login details (local only) |
+
+parasbhavay@gmail.com
+
+
+cd /Users/rahul/Documents/Nitins_Project/quick-commerce-web
+
+docker login
+
+TAG=$(date +%Y.%m.%d-%H%M%S)
+echo "Build name: phoeniixxdesigns/quickcommerce:$TAG"
+
+docker buildx build --builder qcp-multi \
+  --platform linux/amd64,linux/arm64 \
+  -f Dockerfile.allinone \
+  -t phoeniixxdesigns/quickcommerce:$TAG \
+  --push .
+
+docker buildx imagetools inspect phoeniixxdesigns/quickcommerce:$TAG

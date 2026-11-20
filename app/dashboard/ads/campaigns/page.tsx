@@ -8,6 +8,7 @@ import { apiGet, ApiError } from "@/lib/client/api";
 import { fmtN } from "@/lib/format";
 import { CampaignSuggestions } from "@/components/ads/CampaignSuggestions";
 import { CreateCampaignDialog } from "@/components/ads/CreateCampaignDialog";
+import { CampaignChanges } from "@/components/ads/CampaignChanges";
 
 interface Row { campaignId: string; name: string; type: string; status: string; startAt: string | null; endAt: string | null; budget: number | null; pacing: string | null; cities: string[]; productIds: string[]; regionType: string | null; lifetime: { spend: number | null; sales: number | null }; period: Metrics }
 
@@ -23,9 +24,10 @@ function CampaignsView({ query, version }: AdsCtx) {
   const statuses = ["ALL", ...Array.from(new Set(rows.map((r) => r.status)))];
   return (
     <div className="space-y-4">
+    <div className="flex justify-end"><CreateCampaignDialog campaigns={rows} query={query} /></div>
+    <CampaignChanges query={query} version={version} />
     <CampaignSuggestions query={query} version={version} />
     <Card title={`${shown.length} campaigns`} subtitle="Period metrics for the selected dates; lifetime spend from Blinkit" right={<div className="flex flex-wrap justify-end gap-2">
-      <CreateCampaignDialog campaigns={rows} query={query} />
       <input className={field} style={fieldStyle} placeholder="Search campaign" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search campaigns" />
       <select className={field} style={fieldStyle} value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">{statuses.map((s) => <option key={s}>{s}</option>)}</select>
     </div>}>

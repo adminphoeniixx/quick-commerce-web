@@ -30,7 +30,20 @@ async function storeReport(ctx: ChannelCtx, r: FetchedReport, trigger: SyncTrigg
   }
   const file = Buffer.from(r.data, "base64");
   const contentHash = createHash("sha256").update(file).digest("hex");
-  const unchanged = await prisma.channelReport.findFirst({ where: { ...ctx, reportType: r.type, rangeLabel: r.range, status: "SUCCESS", contentHash }, select: { id: true } });
+  let unchanged = await prisma.channelReport.findFirst({ where: { ...ctx, reportType: r.type, rangeLabel: r.range, status: "SUCCESS", contentHash }, select: { id: true } });
+  if (!unchanged) {
+    // Reports imported before contentHash existed must participate in deduplication too.
+    // Backfill only matching recent files, then skip this import when bytes are identical.
+    const legacy = await prisma.channelReport.findMany({
+      where: { ...ctx, reportType: r.type, rangeLabel: r.range, status: "SUCCESS", contentHash: null, fileData: { not: null } },
+      select: { id: true, fileData: true }, orderBy: { id: "desc" }, take: 5,
+    });
+    for (const previous of legacy) {
+      const previousHash = createHash("sha256").update(previous.fileData!).digest("hex");
+      await prisma.channelReport.update({ where: { id: previous.id }, data: { contentHash: previousHash } });
+      if (previousHash === contentHash) unchanged = { id: previous.id };
+    }
+  }
   if (unchanged) return { ok: true, changed: false, orders: 0, label };
   const report = await prisma.channelReport.create({
     data: { ...ctx, reportType: r.type, rangeLabel: r.range, status: "SUCCESS", fileName: r.fileName, fileData: file, contentHash, trigger },
@@ -103,6 +116,8 @@ export async function importReports(ctx: ChannelCtx, reports: FetchedReport[], t
 export const isPublicOnly = (o: SyncOptions) =>
   !!o.search?.keywords.length && o.sales === false && o.catalog === false && o.inventory === false && o.seo === false;
 
+export const connectSyncMode = (hasSuccessfulReport: boolean): "full" | "recent" => hasSuccessfulReport ? "recent" : "full";
+
 export async function runBrowserSync(connectionId: bigint, trigger: SyncTrigger, opts: SyncOptions = {}): Promise<string> {
   const c = await prisma.platformConnection.findUnique({ where: { id: connectionId }, include: { platform: true } });
   if (!c) return "skipped: connection deleted";
@@ -130,7 +145,9 @@ export async function runBrowserSync(connectionId: bigint, trigger: SyncTrigger,
     prisma.syncJob.update({ where: { id: job.id }, data: { status, error, rowsIngested: rows, finishedAt: new Date() } });
 
   try {
-    const out = await fetchReports(c.id, c.platform.slug, { mode: trigger === "connect" ? "full" : "recent", ...opts });
+    const hasSuccessfulReport = trigger === "connect" && await prisma.channelReport.findFirst({ where: { brandId: c.brandId, platformId: c.platformId, status: "SUCCESS" }, select: { id: true } });
+    const mode = trigger === "connect" ? connectSyncMode(Boolean(hasSuccessfulReport)) : "recent";
+    const out = await fetchReports(c.id, c.platform.slug, { mode, ...opts });
     if (!out.ok) {
       if (NEEDS_RECONNECT.has(out.code)) {
         const msg = out.code === "login_required" ? `${c.platform.name} login expired. Click "Reconnect" to log in again.` : out.message;
@@ -163,6 +180,8 @@ export async function runBrowserSync(connectionId: bigint, trigger: SyncTrigger,
     });
     await finish(okCount ? "SUCCESS" : "FAILED", failed.length ? `Failed: ${failed.join(", ")}` : null, orders);
     logger.info("browser_sync.completed", { connectionId: c.id.toString(), reports: results.length, failed: failed.length, orders });
+    // Fresh Ads data: let the growth agents learn from any new bid changes / launches in it.
+    if (okCount && c.platform.slug === "blinkit-ads") await import("@/lib/ads/growth-history").then((m) => m.scheduleHistoryLearning(c.orgId, c.brandId)).catch((error) => logger.error("growth.history_schedule_failed", { error }));
     return `ok: ${okCount}/${results.length} reports, ${orders} rows`;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);

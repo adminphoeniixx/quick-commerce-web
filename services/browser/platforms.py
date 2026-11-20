@@ -7,7 +7,7 @@ from typing import Awaitable, Callable
 import json
 from urllib.parse import unquote, urlparse
 
-from playwright.async_api import Page
+from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 
 class SyncError(Exception):
@@ -216,12 +216,30 @@ class Blinkit(Platform):
     async def download_sales(self, page: Page, range_label: str) -> tuple[str, bytes]:
         await self.dismiss_popups(page)
         await self._select_range(page, range_label)
-        button = page.locator(self.SALES_BUTTON)
+        await self.dismiss_popups(page)
+        button = page.locator(f"{self.SALES_BUTTON}:visible")
         if not await button.count():
-            button = page.get_by_role("button", name=re.compile(r"^reports$", re.I))
+            button = page.locator("button:visible").filter(has_text=re.compile(r"^reports$", re.I))
         if not await button.count():
             raise SyncError("ui_changed", "Sales 'Reports' button not found on the Blinkit performance page")
-        return await self._await_download(page, lambda: button.first.click(timeout=10_000), "/api/reports/poll")
+        button = button.first
+        await button.wait_for(state="visible", timeout=10_000)
+        if await button.is_disabled():
+            raise SyncError("report_unavailable", "Sales 'Reports' button is disabled; Blinkit is not ready to generate this report")
+        await button.scroll_into_view_if_needed()
+
+        async def click_report() -> None:
+            try:
+                await button.click(timeout=15_000)
+            except PlaywrightTimeoutError:
+                # Blinkit occasionally leaves a transparent modal backdrop after changing
+                # the date range. Re-check known popups, then click the verified visible button.
+                await self.dismiss_popups(page)
+                if not await button.is_visible() or await button.is_disabled():
+                    raise SyncError("ui_changed", "Sales 'Reports' button became unavailable before download")
+                await button.click(timeout=10_000, force=True)
+
+        return await self._await_download(page, click_report, "/api/reports/poll")
 
     async def download_catalog(self, page: Page) -> tuple[str, bytes]:
         await page.goto(self.CATALOG_URL, wait_until="domcontentloaded", timeout=60000)

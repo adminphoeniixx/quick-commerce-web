@@ -30,3 +30,27 @@ test("advanced sales import preview, mapping, validation and confirmation", asyn
   await page.getByRole("button", { name:/Confirm/ }).click();
   await expect(page.getByText(/Import started|Progress/)).toBeVisible();
 });
+
+test("sales-growth objective is durable and generation requires synced evidence", async ({ page }) => {
+  await page.goto("/dashboard/ads/growth");
+  await expect(page.getByText("Sales-growth objective")).toBeVisible();
+  await page.getByLabel("Target sales growth (%)").fill("25");
+  await page.getByRole("button", { name: "Save objective" }).click();
+  await expect(page.getByRole("button", { name: "Generate agentic plan" })).toBeEnabled();
+  await page.getByRole("button", { name: "Generate agentic plan" }).click();
+  // Research is queued; the missing-evidence failure surfaces on the plan via polling.
+  await expect(page.getByText(/Sync Blinkit Ads before generating a growth plan/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("failed", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Generate agentic plan" })).toBeEnabled();
+});
+
+test("parallel page requests refresh one expired access token without ending session", async ({ page, context }) => {
+  const cookies = await context.cookies();
+  await context.clearCookies();
+  await context.addCookies(cookies.filter((cookie) => cookie.name !== "qcp_access"));
+  await page.goto("/dashboard/ads/growth");
+  await expect(page).toHaveURL(/dashboard\/ads\/growth/);
+  await expect(page.getByText("Sales-growth objective")).toBeVisible();
+  const me = await page.request.get("/api/auth/me");
+  expect(me.ok()).toBeTruthy();
+});

@@ -6,6 +6,7 @@ export const QUEUE = {
   IMPORT: "qcp-import",
   AGGREGATION: "qcp-aggregation",
   SCHEDULED: "qcp-scheduled",
+  GROWTH: "qcp-growth",
 } as const;
 
 export const MAX_ATTEMPTS = Number(process.env.JOB_MAX_ATTEMPTS ?? 3);
@@ -27,6 +28,7 @@ function queue(name: string): Queue {
 export const importQueue = () => queue(QUEUE.IMPORT);
 export const aggregationQueue = () => queue(QUEUE.AGGREGATION);
 export const scheduledQueue = () => queue(QUEUE.SCHEDULED);
+export const growthQueue = () => queue(QUEUE.GROWTH);
 
 export async function closeQueues(): Promise<void> {
   await Promise.allSettled([...cache.values()].map(q => q.close()));
@@ -38,3 +40,4 @@ export interface AggregationJobData { orgId: string; brandId: string; }
 // "scheduled-sync" jobs carry scheduleId; one-off "connection-sync" jobs carry connectionId.
 // "ads-bids" jobs carry bidsOrgId + bidsBrandId: apply the brand's approved Blinkit Ads bid changes.
 export interface ScheduledJobData { bidsOrgId?: string; bidsBrandId?: string; attempt?: number; scheduleId?: string; connectionId?: string; trigger?: "manual" | "connect" | "retry"; ranges?: string[]; opts?: import("@/lib/connections/browser").SyncOptions; }
+export interface GrowthJobData { planId?: string; sweep?: boolean; learnOrgId?: string; learnBrandId?: string; scrapeOrgId?: string; scrapeBrandId?: string; connectionId?: string; keywords?: string[]; location?: string; }

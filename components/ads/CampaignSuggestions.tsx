@@ -32,7 +32,7 @@ export function CampaignSuggestions({ query, version }: { query: string; version
   const visible = (rows ?? []).filter((row) => !dismissed.has(row.id));
   const launch = async () => { if (!selected?.launchReady || selected.agentConsensus?.verdict !== "launch") return; setBusy(true); setError(""); try { const result = await apiPost<{ campaignId: string }>(`/api/ads/campaigns/proposals/${selected.proposalId}/decide?${query}`, { action: "approve" }); window.location.assign(`/dashboard/ads/campaigns/${result.campaignId}`); } catch (e) { setError(e instanceof ApiError ? e.message : "Blinkit could not launch this campaign."); setBusy(false); } };
   if (error && !selected) return <div role="alert" className="rounded-xl border p-3 text-sm" style={{ borderColor: "var(--crit)", color: "var(--crit)" }}>{error}</div>;
-  if (rows === null) return <div className="rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>Safe sales-growth actions find ho rahe hain…</div>;
+  if (rows === null) return <div className="rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>Finding safe sales-growth actions…</div>;
   if (!visible.length) return <div className="rounded-xl border p-4 text-sm" style={{ borderColor: "var(--border)" }}><b>No action is currently available.</b><p className="mt-1" style={{ color: "var(--muted)" }}>Sync Blinkit Ads to collect campaign performance data.</p></div>;
   return <>
     <section className="rounded-2xl border p-4" style={{ borderColor: "color-mix(in srgb, var(--accent) 35%, var(--border))", background: "color-mix(in srgb, var(--accent) 4%, var(--surface))" }}>

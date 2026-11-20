@@ -14,7 +14,7 @@ interface Perf { impressions: number; spend: number; sales: number; atc: number;
 interface Bid { matchType: string; cpm: number | null; maxBoost: number | null; perf: Perf | null; open: Change | null; last: Change | null }
 interface Campaign { campaignId: string; name: string; type: string; status: string; budget: number | null; syncedAt: string; products: { productId: string; name: string | null }[]; keywords: { keyword: string; bids: Bid[] }[] }
 interface BidsData { range: { from: string; to: string } | null; limits: { min: number; max: number; perDay?: number; perKeywordPerDay?: number; usedToday?: number }; connection?: { status: string; paused: string | null } | null; products: { productId: string; name: string | null }[]; campaigns: Campaign[] }
-interface Recommendation { id: string; campaignId: string; campaignName: string; keyword: string; matchType: string; cpm: number; toCpm: number; changePct: number; objective: string; reason: string; expectedImpact: string; confidence: string; spend: number; sales: number; roas: number | null; agentConsensus?: { verdict: "approve" | "review" | "skip"; summary: string; reviews: { role: string; verdict: string; summary: string; risks: string[] }[] } }
+interface Recommendation { id: string; campaignId: string; campaignName: string; keyword: string; matchType: string; cpm: number; toCpm: number; changePct: number; objective: string; reason: string; expectedImpact: string; decisionFactors: string[]; confidence: string; spend: number; sales: number; roas: number | null; research?: { dataWarnings: string[] }; agentConsensus?: { verdict: "approve" | "review" | "skip"; summary: string; reviews: { role: string; verdict: string; summary: string; risks: string[] }[] } }
 interface RecommendationData { recommendations: Recommendation[]; mode: string; model: string | null; range: { from: string; to: string } | null; generatedAt: string }
 
 const muted = { color: "var(--muted)" };
@@ -77,7 +77,7 @@ function BidsView({ brandId, query, version }: AdsCtx) {
 
   const recommendations = analysis?.recommendations ?? [];
 
-  const useRecommendations = () => setEdits((old) => ({ ...old, ...Object.fromEntries(recommendations.map((item) => [item.id, String(item.toCpm)])) }));
+  const useRecommendations = () => setEdits((old) => ({ ...old, ...Object.fromEntries(recommendations.filter((item) => item.agentConsensus?.verdict === "approve").map((item) => [item.id, String(item.toCpm)])) }));
 
   const changes = useMemo(() => Object.entries(edits).flatMap(([k, v]) => {
     const [campaignId, keyword, matchType] = k.split("|");
@@ -124,12 +124,13 @@ function BidsView({ brandId, query, version }: AdsCtx) {
       {error && <p className="rounded-lg border px-3 py-2 text-xs" style={{ borderColor: "var(--crit)", color: "var(--crit)" }}>{error}</p>}
 
       <Card title={`AI bid recommendations · ${recommendations.length}`} subtitle={`Performance + Growth + Risk agents reviewed deterministic ±15% safe bids${analysis?.range ? ` using ${analysis.range.from}–${analysis.range.to}` : ""}. Nothing changes until approval.`}
-        right={recommendations.length ? <button className="rounded-lg px-3 py-1.5 text-xs font-semibold" style={{ background: "var(--accent)", color: "var(--plane)" }} onClick={useRecommendations}>Add all for review</button> : null}>
+        right={recommendations.some((item) => item.agentConsensus?.verdict === "approve") ? <button className="rounded-lg px-3 py-1.5 text-xs font-semibold" style={{ background: "var(--accent)", color: "var(--plane)" }} onClick={useRecommendations}>Add agent-approved bids</button> : null}>
         {!recommendations.length ? <p className="py-3 text-xs" style={muted}>No safe bid change found. Keep bids unchanged until more performance data arrives.</p> :
           <div className="mt-2 grid gap-2 lg:grid-cols-2 xl:grid-cols-3">{recommendations.slice(0, 9).map((item) => <div key={item.id} className="rounded-xl border p-3 text-xs" style={{ borderColor: "var(--border)" }}>
-            <div className="flex items-start justify-between gap-2"><div><b>{item.objective}</b><p className="mt-0.5 font-semibold">{item.keyword} · {item.matchType.toLowerCase()}</p></div><b className="tnum whitespace-nowrap" style={{ color: item.toCpm > item.cpm ? "var(--ok)" : "var(--warn)" }}>₹{item.cpm} → ₹{item.toCpm}</b></div>
-            <p className="mt-2" style={muted}>{item.reason}</p><p className="mt-1">{item.expectedImpact}</p><p className="mt-1 truncate" style={muted}>{item.campaignName} · {item.agentConsensus?.verdict ?? "review"}</p>
-            <button className="mt-2 font-semibold underline" onClick={() => setEdits((old) => ({ ...old, [item.id]: String(item.toCpm) }))}>Add for approval</button>
+            <div className="flex items-start justify-between gap-2"><div><b>{item.objective}</b><p className="mt-0.5 font-semibold">{item.keyword} · {item.matchType.toLowerCase()}</p></div><div className="text-right"><b className="tnum whitespace-nowrap" style={{ color: item.toCpm > item.cpm ? "var(--ok)" : "var(--warn)" }}>₹{item.cpm} → ₹{item.toCpm}</b><p className="tnum text-[10px]" style={muted}>{item.changePct > 0 ? "+" : ""}{item.changePct.toFixed(0)}%</p></div></div>
+            <div className="mt-2 flex flex-wrap gap-1">{item.decisionFactors.map((factor) => <span key={factor} className="rounded-full border px-2 py-0.5 text-[10px]" style={{ borderColor: "var(--border)", color: "var(--muted)" }}>{factor}</span>)}</div>
+            <p className="mt-2"><b>Why:</b> <span style={muted}>{item.reason}</span></p><p className="mt-1"><b>Expected impact:</b> {item.expectedImpact}</p><p className="mt-1"><b>Agent review:</b> <span style={muted}>{item.agentConsensus?.summary ?? "Manual review required."}</span></p>{item.agentConsensus?.reviews?.length ? <details className="mt-2"><summary className="cursor-pointer font-semibold">Performance, Growth and Risk reviews</summary>{item.agentConsensus.reviews.map((review) => <div key={review.role} className="mt-1 rounded-lg border p-2" style={{ borderColor: "var(--border)" }}><b>{review.role} · {review.verdict}</b><p style={muted}>{review.summary}</p>{review.risks.map((risk) => <p key={risk} style={{ color: "var(--warn)" }}>• {risk}</p>)}</div>)}</details> : null}{item.research?.dataWarnings.map((warning) => <p key={warning} className="mt-1" style={{ color: "var(--warn)" }}>• {warning}</p>)}<p className="mt-1 truncate" style={muted}>{item.campaignName} · confidence {item.confidence}</p>
+            <button disabled={item.agentConsensus?.verdict !== "approve"} className="mt-2 font-semibold underline disabled:no-underline disabled:opacity-50" onClick={() => setEdits((old) => ({ ...old, [item.id]: String(item.toCpm) }))}>{item.agentConsensus?.verdict === "approve" ? "Add for approval" : "Blocked by agent review"}</button>
           </div>)}</div>}
       </Card>
 
