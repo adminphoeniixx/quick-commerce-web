@@ -9,7 +9,7 @@ import { logger } from "@/lib/logger";
 import { writeAudit } from "@/lib/audit";
 import { sendMail } from "@/lib/mailer";
 import { queuesEnabled } from "@/lib/queue/connection";
-import { scheduledQueue } from "@/lib/queue/queues";
+import { keepaliveQueue } from "@/lib/queue/queues";
 import { BROWSER_PLATFORMS, browserSupported, checkSession } from "./browser";
 import { BLOCK_CODES, pauseConnection, pauseMessage } from "./guard";
 
@@ -102,8 +102,8 @@ export async function runSessionKeepalive(): Promise<string> {
 export async function registerSessionKeepalive(): Promise<boolean> {
   if (!queuesEnabled()) return false;
   const pattern = process.env.SESSION_KEEPALIVE_CRON ?? "*/15 * * * *";
-  const queue = scheduledQueue();
+  const queue = keepaliveQueue();
   for (const r of await queue.getRepeatableJobs()) if (r.name === KEEPALIVE_JOB && r.pattern !== pattern) await queue.removeRepeatableByKey(r.key);
-  await queue.add(KEEPALIVE_JOB, { keepalive: true }, { jobId: KEEPALIVE_JOB, repeat: { pattern }, attempts: 1, removeOnComplete: { count: 50 }, removeOnFail: { count: 50 } });
+  await queue.add(KEEPALIVE_JOB, {}, { jobId: KEEPALIVE_JOB, repeat: { pattern }, attempts: 1, removeOnComplete: { count: 50 }, removeOnFail: { count: 50 } });
   return true;
 }

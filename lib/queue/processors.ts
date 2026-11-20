@@ -81,14 +81,12 @@ export async function processScheduledSync(scheduleId: bigint): Promise<string> 
     const { browserSupported } = await import("@/lib/connections/browser");
     if (conn && browserSupported(conn.platform.slug)) {
       if (s.dataType === "auth_health") {
-        const { checkSession } = await import("@/lib/connections/browser");
-        const checked = await checkSession(conn.id, conn.platform.slug).catch(() => ({ ok: false, code: "browser_unavailable" }));
-        const failures = checked.ok ? 0 : conn.authFailures + 1;
-        await prisma.$transaction([
-          prisma.platformConnection.update({ where: { id: conn.id }, data: { lastAuthCheckAt: now, authFailures: failures, ...(checked.ok ? { lastVerifiedAt: now, status: "CONNECTED", lastError: null } : failures >= 2 && checked.code === "login_required" ? { status: "ERROR", lastError: `${conn.platform.name} login expired. Click Reconnect to log in again.` } : {}) } }),
-          prisma.syncSchedule.update({ where: { id: scheduleId }, data: { lastRunAt: now, lastStatus: checked.ok ? "session healthy" : `auth check ${failures}/2 failed: ${checked.code}` } }),
-        ]);
-        return checked.ok ? "session healthy" : `auth check ${failures}/2 failed: ${checked.code}`;
+        // Same rules as the 15-minute keep-alive (lib/connections/keepalive.ts).
+        const { checkAndRecord } = await import("@/lib/connections/keepalive");
+        const fresh = await prisma.platformConnection.findUniqueOrThrow({ where: { id: conn.id }, select: { id: true, orgId: true, brandId: true, status: true, authFailures: true, platform: { select: { slug: true, name: true } }, brand: { select: { name: true } } } });
+        const status = await checkAndRecord(fresh);
+        await prisma.syncSchedule.update({ where: { id: scheduleId }, data: { lastRunAt: now, lastStatus: status } });
+        return status;
       }
       const { runBrowserSync } = await import("@/lib/connections/sync");
       let result: string;

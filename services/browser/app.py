@@ -161,8 +161,13 @@ async def session_health(cid: str, body: StartBody):
     cid, platform = check_cid(cid), platform_of(body.platform)
     if not (PROFILE_DIR / cid).is_dir():
         return JSONResponse({"ok": False, "code": "login_required"}, status_code=422)
-    async with lock_for(cid):
-        async with slots:
+    # Keep-alive runs every 15 min: never queue behind a sync or an open login window (both keep the
+    # session warm themselves) and never run beside another Blinkit browser (same IP, one at a time).
+    lock = lock_for(cid)
+    if cid in state["live"] or lock.locked() or blinkit_session.locked():
+        return JSONResponse({"ok": False, "code": "busy"}, status_code=409)
+    async with lock:
+        async with blinkit_session, slots:
             ctx, page = await open_context(cid, platform)
             try:
                 await page.goto(platform.login_url, wait_until="domcontentloaded", timeout=60000)

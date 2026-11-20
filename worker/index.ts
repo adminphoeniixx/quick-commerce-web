@@ -14,6 +14,7 @@ import { registerGrowthSweep, runGrowthResearch, runGrowthSweep } from "@/lib/ad
 import { learnFromHistory } from "@/lib/ads/growth-history";
 import { computeMarketInsights } from "@/lib/ads/market-learning";
 import { runAgentSearch, type WebScrapeJob } from "@/lib/ads/web-research";
+import { registerSessionKeepalive, runSessionKeepalive } from "@/lib/connections/keepalive";
 
 validateEnvironment();
 
@@ -54,6 +55,10 @@ const growthWorker = new Worker<GrowthJobData>(
     : runGrowthResearch(BigInt(job.data.planId!), job.attemptsMade + 1 >= (job.opts.attempts ?? 1)),
   { connection, concurrency: Number(process.env.GROWTH_CONCURRENCY ?? 2), lockDuration: 10 * 60_000 },
 );
+// Blinkit session keep-alive: its own queue so a round never delays a user's "Sync now".
+const keepaliveWorker = new Worker(QUEUE.KEEPALIVE, () => runSessionKeepalive(), { connection, concurrency: 1, lockDuration: 5 * 60_000 });
+keepaliveWorker.on("failed", (job, err) => logger.error("worker.keepalive_failed", { queueJobId: job?.id, error: err }));
+
 growthWorker.on("failed", (job, err) => logger.error("worker.growth_failed", { queueJobId: job?.id, attemptsMade: job?.attemptsMade, error: err }));
 
 // Dead-letter handling: mark the ImportJob DEAD_LETTERED on the final failed attempt.
@@ -71,12 +76,13 @@ importWorker.on("failed", async (job, err) => {
 importWorker.on("completed", (job) => logger.info("worker.import_completed", { queueJobId: job.id }));
 aggWorker.on("failed", (job, err) => logger.error("worker.aggregation_failed", { queueJobId: job?.id, error: err }));
 
-for (const w of [importWorker, aggWorker, schedWorker, growthWorker]) {
+for (const w of [importWorker, aggWorker, schedWorker, growthWorker, keepaliveWorker]) {
   w.on("error", (e) => logger.error("worker.error", { error: e }));
 }
 
 logger.info("worker.ready", { importConcurrency, aggregationConcurrency: 2, scheduledConcurrency: 1 });
 registerGrowthSweep().then((ok) => logger.info("worker.growth_sweep_registered", { ok })).catch((error) => logger.error("worker.growth_sweep_register_failed", { error }));
+registerSessionKeepalive().then((ok) => logger.info("worker.keepalive_registered", { ok })).catch((error) => logger.error("worker.keepalive_register_failed", { error }));
 recoverSchedules().then((count) => logger.info("worker.schedules_recovered", { count })).catch((error) => logger.error("worker.schedule_recovery_failed", { error }));
 
 const cleanupEveryMs = Number(process.env.IMPORT_CLEANUP_INTERVAL_MS ?? 6 * 60 * 60 * 1000);

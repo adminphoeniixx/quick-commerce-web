@@ -7,6 +7,7 @@ export const QUEUE = {
   AGGREGATION: "qcp-aggregation",
   SCHEDULED: "qcp-scheduled",
   GROWTH: "qcp-growth",
+  KEEPALIVE: "qcp-keepalive",
 } as const;
 
 export const MAX_ATTEMPTS = Number(process.env.JOB_MAX_ATTEMPTS ?? 3);
@@ -29,6 +30,7 @@ export const importQueue = () => queue(QUEUE.IMPORT);
 export const aggregationQueue = () => queue(QUEUE.AGGREGATION);
 export const scheduledQueue = () => queue(QUEUE.SCHEDULED);
 export const growthQueue = () => queue(QUEUE.GROWTH);
+export const keepaliveQueue = () => queue(QUEUE.KEEPALIVE);
 
 export async function closeQueues(): Promise<void> {
   await Promise.allSettled([...cache.values()].map(q => q.close()));
